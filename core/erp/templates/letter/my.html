@@ -1,0 +1,46 @@
+{% extends 'list.html' %}
+{% load static %}
+{% block  head_list %}
+
+<script src="{% static 'letter/js/mylist.js' %}"></script>
+{% endblock %}
+
+{% block columns %}
+<tr>
+    <th scope="col" style="width: 2%">#</th>
+    <th scope="col" style="width: 10%">Referência</th>
+    <th scope="col" style="width: 20%">Assunto</th>
+    <th scope="col" style="width: 8%">Data de envio</th>
+    <th scope="col" style="width: 15%">Autor</th>
+    <th scope="col" style="width: 10%">Estado</th>
+    <th scope="col" style="width: 10%">Opções</th>
+    <input type="text"  visible="false" value="{{manager}}" id="manager" readonly="true" style="visibility: hidden; display:none">
+</tr>
+{% endblock %}
+
+{% block rows %}
+
+{% endblock %}
+
+    <div class="card-footer">
+        {% block footer %}
+            <a href="{{ create_url }}" class="btn btn-primary btn-flat btnTest">
+                <i class="fas fa-plus"></i> Escrever carta
+            </a>
+
+            <a href="{{ list_url }}" class="btn btn-success btn-flat">
+                        <i class="fas fa-sync"></i> Actualizar
+                    </a>
+         {% endblock %}
+    </div>
+
+{% block js %}
+<script src="{% static 'letter/js/mylist.js' %}">
+    var my_chart = {{ manager }};
+
+    console.log(my_chart)
+    mi_list({{manager}})
+</script>
+{% endblock %}
+
+

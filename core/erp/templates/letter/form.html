@@ -1,0 +1,229 @@
+{% extends 'form.html' %}
+{% load static %}
+
+{% block head %}
+<link href="{% static 'lib/jquery-ui-1.12.1/jquery-ui.min.css' %}" rel="stylesheet"/>
+<script src="{% static 'lib/jquery-ui-1.12.1/jquery-ui.min.js' %}"></script>
+
+<link href="{% static 'lib/select2-4.0.13/css/select2.min.css' %}" rel="stylesheet"/>
+<link href="{% static 'lib/select2-4.0.13/css/select2-bootstrap4.min.css' %}" rel="stylesheet"/>
+<script src="{% static 'lib/select2-4.0.13/js/select2.min.js' %}"></script>
+<script src="{% static 'lib/select2-4.0.13/js/i18n/es.js' %}"></script>
+
+<script src="{% static 'lib/moment-2.25.3/moment-with-locales.js' %}"></script>
+<script src="{% static 'lib/tempusdominus-bootstrap-4/tempusdominus-bootstrap-4.min.js' %}"></script>
+<link href="{% static 'lib/tempusdominus-bootstrap-4/tempusdominus-bootstrap-4.min.css' %}" rel="stylesheet"/>
+
+<link href="{% static 'lib/bootstrap-touchspin-4.3.0/jquery.bootstrap-touchspin.css' %}" rel="stylesheet"/>
+<script src="{% static 'lib/bootstrap-touchspin-4.3.0/jquery.bootstrap-touchspin.js' %}"></script>
+
+<link href="{% static 'lib/select2-4.0.13/css/select2.min.css' %}" rel="stylesheet"/>
+<link href="{% static 'lib/select2-4.0.13/css/select2-bootstrap4.min.css' %}" rel="stylesheet"/>
+<script src="{% static 'lib/select2-4.0.13/js/select2.min.js' %}"></script>
+<script src="{% static 'lib/select2-4.0.13/js/i18n/es.js' %}"></script>
+
+
+
+{% endblock %}
+{% block content %}
+
+
+<form id="referencia-form" novalidate="novalidate" xmlns="http://www.w3.org/1999/html">
+
+    {% csrf_token %}
+
+    <div class="card card-danger">
+        <div class="card-header">
+            <h3 class="card-title">Pesquise o código de referencia</h3>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-3">
+                    <div class="form-group">
+
+                        <input type="text" class="form-control" id="referencia" name="referencia"
+                               placeholder="Digite o Código de Referência" aria-describedby="InputReferencia"
+                               aria-invalid="true">
+                        <!--                        <span id="InputReferencia-error"-->
+                        <!--                              class="error invalid-feedback">Por favor digite um código de referencia.</span>-->
+                    </div>
+
+                </div>
+
+                <div class="col-4">
+                    <button type="button" class="btn btn-info" id="verificar-btn">Pesquisar</button>
+                    <button type="button" class="btn btn-danger" id="anuluar-btn" style="visibility: hidden">Voltar
+                    </button>
+                </div>
+
+            </div>
+            <div class="row">
+                <!-- Campos ocultos -->
+                <div id="campos-ocultos" class="col-md-12" style="display: block;">
+                    <div class="card card-primary">
+                        <div class="card-header">
+                            <h3 class="card-title">Dados da Carta</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-sm-6">
+
+                                    <div class="form-group">
+                                        <label>Código de Referencia</label>
+                                        <input type="text" id="reference_code" class="form-control"
+                                               placeholder="Enter ..."
+                                               wfd-id="id31" disabled="">
+                                    </div>
+                                </div>
+                                <div class="col-sm-6">
+                                    <div class="form-group">
+                                        <label>Autor</label>
+                                        <input type="text" id="author" class="form-control" placeholder="Enter ..."
+                                               disabled=""
+                                               wfd-id="id32">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-sm-6">
+
+                                    <div class="form-group">
+                                        <label>Assunto da Carta</label>
+                                        <input type="text" id="reason" class="form-control" placeholder="Enter ..."
+                                               wfd-id="id31">
+                                    </div>
+                                </div>
+                                <div class="col-sm-6">
+                                    <div class="form-group">
+                                        <label>Date:</label>
+                                        <div class="input-group date" id="reservationdate"
+                                             data-target-input="nearest">
+                                            <input type="text" id="sent_date" class="form-control datetimepicker-input"
+                                                   data-target="#reservationdate" wfd-id="id15">
+                                            <div class="input-group-append" data-target="#reservationdate"
+                                                 data-toggle="datetimepicker">
+                                                <div class="input-group-text"><i class="fa fa-calendar"></i></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="editor" style="height: 200px"></div>
+                        </div>
+
+
+                    </div>
+
+
+                </div>
+            </div>
+            <button type="submit" class="btn btn-success" id="salvar-btn" style="display: ;">Salvar</button>
+        </div>
+    </div>
+</form>
+
+<script>
+
+    let fields = document.querySelectorAll('.required');
+    $(document).ready(function () {
+        $("#verificar-btn").click(function (e) {
+            e.preventDefault();
+
+            const referencia = $("#referencia").val();  // Obter o valor do input
+            let fields = document.querySelectorAll('.required');
+            let spans = document.querySelectorAll('.span-required');
+            let allgood = true;
+
+            $.ajax({
+                delay: 250,
+                url: "{% url 'erp:reference_check' %}",  // Substitua pela URL correta
+                method: "POST",
+                data: {
+                    referencia: referencia,
+                    'csrfmiddlewaretoken': "{{ csrf_token }}"
+                },
+                dataType: "json",
+                success: function (response) {
+                    if (response.exists) {
+                        if (response.associado) {
+                            alert("Código de referência já está em uso. Tente com outro código válido.");
+                        } else {
+                            console.log(response, 'VAZIO');
+                            code = document.getElementById("reference_code")
+                            //code.value = response.associado;
+                            $("#reference_code").val(response.codigo);
+                            $("#author").val(response.user);
+                            $("#campos-ocultos").show();
+                            $("#salvar-btn").show();
+                        }
+
+                    } else {
+                        alert("Código de referência inválido.");
+                    }
+                }
+            });
+        });
+
+        $("#salvar-btn").click(function (e) {
+            e.preventDefault();
+            console.log('xxxx')
+
+            // const referencia = $("#referencia").val();  // Obter o valor do input
+            // let fields = document.querySelectorAll('.required');
+            // let spans = document.querySelectorAll('.span-required');
+            // let allgood = true;
+
+            // $.ajax({
+            //     delay: 250,
+            //     url: "{% url 'erp:reference_check' %}",  // Substitua pela URL correta
+            //     method: "POST",
+            //     data: {
+            //         referencia: referencia,
+            //         'csrfmiddlewaretoken': "{{ csrf_token }}"
+            //     },
+            //     dataType: "json",
+            //     success: function (response) {
+            //         if (response.exists) {
+            //             if (response.associado) {
+            //                 alert("Código de referência já está em uso. Tente com outro código válido.");
+            //             } else {
+            //                 console.log(response, 'VAZIO');
+            //                 $("#campos-ocultos").show();
+            //                 $("#salvar-btn").show();
+            //             }
+            //
+            //         } else {
+            //             alert("Código de referência inválido.");
+            //         }
+            //     }
+            // });
+        });
+
+        var inicio = $('input[name="sent_date"]');
+        // var fim = document.getElementById("end_date");
+        // var fim = $('input[name="end_date"]');
+        // $('select[name="type"]').select2({
+        //     theme: "bootstrap4",
+        //     language: 'pt',
+        //     allowClear: true,
+        //     placeholder: 'Selecione o Chefe',
+        // });
+
+
+        console.log(inicio.value, "from");
+        $('#sent_date').datetimepicker({
+            useCurrent: false,
+            format: 'YYYY-MM-DD',
+            //date: inicio.value,
+            locale: 'pt',
+            showButtonPanel: true,
+            showTodayButton: true,
+            keepOn: true,
+
+        });
+
+        inicio.datetimepicker('date', inicio.val());
+    });
+
+</script>
+{% endblock %}

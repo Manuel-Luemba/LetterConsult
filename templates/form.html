@@ -1,0 +1,201 @@
+{% extends 'layout.html' %}
+{% load widget_tweaks %}
+
+{% block head %}
+
+{% block head_form %}
+<!-- Include stylesheet -->
+
+
+{% endblock %}
+{% endblock %}
+
+{% block content %}
+<form action="." method="post" enctype="multipart/form-data">
+    <div class="card card-default">
+        <div class="card-header">
+            <h3 class="card-title">
+                {% if action == 'add' %}
+                <i class="fas fa-plus"></i>
+                {% else %}
+                <i class="fas fa-edit"></i>
+                {% endif %}
+                {{ title }}
+            </h3>
+        </div>
+        <div class="card-body">
+            {% csrf_token %}
+            <input type="hidden"  name="action" id="action" value="{{ action }}">
+            <input type="hidden" name="table" value="{{ table }}">
+            {% if form.errors %}
+
+            <div class="alert alert-danger alert-dismissible">
+                <button type="button" class="close" data-dismiss="alert" aria-hidden="true">×</button>
+                <h5><i class="icon fas fa-ban"></i> Erro ao guardar o registo!</h5>
+                <ul>
+
+                    {% for field in form %}
+                    {% for error in field.errors %}
+                    <li>
+                        {{ error }}
+                    </li>
+                    {% endfor %}
+
+                    {% endfor %}
+                </ul>
+                {{ form.errors.message }}
+            </div>
+            {% endif %}
+
+
+            {% for field in form.visible_fields %}
+            <div class="form-group">
+                <label>{{ field.label }}</label>
+                {{ field | add_class:'form-control' }}
+            </div>
+            {% endfor %}
+
+
+        </div>
+        {% block foot_botton %}
+        <div class="card-footer">
+            <button type="submit" class="btn btn-primary btn-flat">
+                <i class="fas fa-save"></i> Guardar registro
+            </button>
+            <a href="{{ list_url }}" class="btn btn-danger btn-flat">
+                <i class="fas fa-times"></i> Cancelar
+            </a>
+        </div>
+        {% endblock %}
+    </div>
+</form>
+
+<script type="application/javascript">
+    {% if form.errors %}
+        var errors = '';
+        {%for field in form %}
+        {% for error in field.errors %}
+        errors += '{{ error }}\n'
+        {% endfor %}
+        {% endfor %}
+        Swal.fire({
+            title: 'Erro!',
+            text: errors,
+            icon: 'error'
+
+        })
+    {% endif %}
+
+    function addAbsence() {
+    console.log("addClient init ...");
+
+    let tipo = document.getElementById('type');
+    let dt_inicio = document.getElementById('start_date');
+    let dt_final = document.getElementById('end_date');
+    let motivo = document.getElementById('end_date');
+
+    console.log(type, "ddd");
+    console.log(dt_inicio, "ddd");
+    console.log(dt_final, "ddd");
+
+    let allgood = true;
+    let text = "";
+
+
+    if (tipo.value === "") {
+        text = "Selecione o Tipo de <b>Ausência</b>";
+        allgood = false;
+    }
+    else if (dt_inicio.value === "") {
+        text = "Preencha a data de <b>INICIO</b>";
+        allgood = false;
+    }
+    else if (dt_final.value === "") {
+        text = "Preencha a data de <b>FIM</b>";
+        allgood = false;
+    }
+
+
+    else if (dt_inicio.value > dt_final.value) {
+        text = "A data de <b>INICIO</b> não pode ser maior que a data de <b>FIM</b>";
+        allgood = false;
+    }
+         else if (motivo.value === "") {
+        text = "Preencha o <b>Motivo</b> da Ausência";
+        allgood = false;
+    }
+
+    if (!allgood) {
+        Swal.fire({
+            title: 'Erro de Validação',
+            icon: 'error',
+            html: text
+        });
+    }
+
+    console.log("addClient finished...");
+    return allgood;
+}
+    // alerta_action();
+/*
+    $('form').on('submit', function (e) {
+        e.preventDefault();
+        var param = $(this).serializeArray();
+
+
+        $.ajax({
+            url: window.location.pathname,
+            type: 'POST',
+            data: param,
+            datatype: 'json'
+        })
+            .done(
+                function (data) {
+                    if (!data.hasOwnProperty('error')) {
+                        location.href = '{{ list_url }}'
+                        return false;
+                    }
+
+                    message_error(data.error);
+                }).fail(
+            function (jqXHR, textStatus, errorThrown) {
+                alert(textStatus + ':' + errorThrown)
+            }
+        )
+            .always(
+                function () {
+
+                })
+    });
+        */
+    var valid = true;
+
+    $('form').on('submit', function (e) {
+            e.preventDefault();
+
+            var parameters = new FormData(this);
+
+            let table = this.table.value;
+
+            // let type = document.getElementById('type');
+            //
+            //
+            // console.log(type, "ddd");
+            // console.log(table);
+            // if(table === "Absence"){
+            //         console.log(type, "ddd");
+            //        valid =  addAbsence();
+            //        console.log(valid);
+            // }
+
+        if (valid){
+            submit_with_ajax(window.location.pathname, 'Aviso', 'Deseja realizar esta acção?', parameters, function () {
+                location.href = '{{ list_url }}';
+           });
+           }
+        });
+
+</script>
+{% endblock %}
+
+

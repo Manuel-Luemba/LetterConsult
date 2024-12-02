@@ -1,0 +1,542 @@
+{% extends 'form.html' %}
+{% load static %}
+{% block head_form %}
+
+<link href="{% static 'lib/jquery-ui-1.12.1/jquery-ui.min.css' %}" rel="stylesheet"/>
+<script src="{% static 'lib/jquery-ui-1.12.1/jquery-ui.min.js' %}"></script>
+
+<link href="{% static 'lib/select2-4.0.13/css/select2.min.css' %}" rel="stylesheet"/>
+<link href="{% static 'lib/select2-4.0.13/css/select2-bootstrap4.min.css' %}" rel="stylesheet"/>
+<script src="{% static 'lib/select2-4.0.13/js/select2.min.js' %}"></script>
+<script src="{% static 'lib/select2-4.0.13/js/i18n/es.js' %}"></script>
+
+<script src="{% static 'lib/moment-2.25.3/moment-with-locales.js' %}"></script>
+<script src="{% static 'lib/tempusdominus-bootstrap-4/tempusdominus-bootstrap-4.min.js' %}"></script>
+<link href="{% static 'lib/tempusdominus-bootstrap-4/tempusdominus-bootstrap-4.min.css' %}" rel="stylesheet"/>
+
+<link href="{% static 'lib/bootstrap-touchspin-4.3.0/jquery.bootstrap-touchspin.css' %}" rel="stylesheet"/>
+<script src="{% static 'lib/bootstrap-touchspin-4.3.0/jquery.bootstrap-touchspin.js' %}"></script>
+
+<link href="{% static 'lib/select2-4.0.13/css/select2.min.css' %}" rel="stylesheet"/>
+<link href="{% static 'lib/select2-4.0.13/css/select2-bootstrap4.min.css' %}" rel="stylesheet"/>
+<script src="{% static 'lib/select2-4.0.13/js/select2.min.js' %}"></script>
+<script src="{% static 'lib/select2-4.0.13/js/i18n/es.js' %}"></script>
+<script src="{% static 'letter/js/form.js' %}"></script>
+<!--<script>-->
+<!--    var quill = new Quill('#editor', {-->
+<!--        theme: 'snow'-->
+<!--    });-->
+<!--</script>-->
+<style>
+    @page {
+        size: "A4";
+        margin: 2cm 2cm 1cm 1cm;
+    }
+
+    .a4-page {
+        width: 21cm; /* Largura A4 */
+        height: 29.7cm; /* Altura A4 */
+        margin: 2cm auto; /* Margens automáticas para centralizar a página */
+        padding: 2cm;
+        background: white;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); /* Sombra leve para parecer papel */
+        border: 1px solid #ccc; /* Borda leve ao redor */
+        font-family: 'Gill Sans MT', sans-serif; /* Fonte padrão */
+        page-break-after: always; /* Quebra a página depois */
+        overflow: hidden; /* Esconde o conteúdo que excede o tamanho da página */
+        position: relative; /* Necessário para o botão fixo */
+    }
+
+    /* Limitar o conteúdo dentro da página A4 */
+    .a4-content {
+        max-height: 100%;
+        overflow: hidden;
+        margin: 0;
+        margin-bottom: 50px; /* Espaço para o botão */
+
+    }
+
+    .letter {
+        width: 100% !important;
+        height: 100%;
+        background: #fff;
+        color: black;
+        font-size: 100%;
+        font-family: 'Roboto', sans-serif;
+        line-height: 1.65;
+        -webkit-font-smoothing: antialiased;
+        -webkit-text-size-adjust: none;
+    }
+
+
+    body {
+        font-family: 'Gill Sans MT', 'Gill Sans', Calibri, sans-serif;
+        margin: 0;
+        padding: 0;
+    }
+
+    .letter input[type="text"] {
+        border: none 1px solid #000;
+        height: 30%;
+        padding: 0;
+
+    }
+
+    .letter input[type="date"] {
+        border: none 1px solid #000;
+        height: 20%;
+        padding: 0;
+    }
+
+
+    #assunto {
+        width: 86%
+    }
+
+    .row .col-3 {
+        text-align: center;
+    }
+
+    .row .col-3 input {
+        text-align: center;
+    }
+
+    /* Estilize o botão de rádio */
+    .letter input[type="radio"] {
+        -webkit-appearance: none;
+        -moz-appearance: none;
+        appearance: none;
+        width: 20px;
+        height: 20px;
+        border: 2px solid #333;
+        border-radius: 0; /* Tornar o botão quadrado */
+        outline: none;
+        margin-right: 10px; /* Espaço entre o botão e a label */
+    }
+
+    /* Estilize o botão de rádio quando estiver selecionado */
+    .letter input[type="radio"]:checked {
+        background-color: #333;
+
+    }
+
+    .letter input[type="text"], .letter input[type="date"], textarea {
+        border: none;
+        /*border-bottom: 1px solid #000; !* Cor da borda inferior (preto neste caso) *!*/
+        disable: true
+    }
+
+    img {
+        float: left; /* Alinha a imagem à esquerda */
+        margin-right: 10px; /* Espaçamento entre a imagem e o conteúdo adjacente */
+        width: 200px;
+        height: 30px;
+    }
+
+    /* Torna todos os inputs apenas de leitura */
+    .letter input {
+        pointer-events: none;
+    }
+
+    .letter textarea {
+        pointer-events: none;
+    }
+
+    .sign > * input {
+        height: 20px;
+    }
+</style>
+<style>
+
+
+    <!-- /* Estilo do cabeçalho */
+    #header {
+        position: running(header);
+        width: 5.68cm;
+        height: 0.8cm; /* Altura do cabeçalho */
+        display: flex;
+        /*align-items: center;*/
+        margin-bottom: 30px; /* Espaço abaixo do cabeçalho */
+        margin-top: 0.4cm;
+    }
+
+    /* Controle preciso das imagens do cabeçalho */
+    .header-image {
+        height: 0.8cm; /* Altura exata para evitar distorção */
+        width: auto;
+    }
+
+
+    header {
+        margin-bottom: 20px;
+        padding-left: 20px; /* Ajuste conforme necessário */
+    }
+
+    .header-line {
+        text-align: left;
+        margin: 0;
+        padding-left: 300px; /* Ajuste conforme necessário */
+    }
+
+    .negrito {
+        font-weight: bold;
+    }
+
+    .header-line {
+        text-align: left;
+        margin: 0;
+        padding-left: 300px; /* Ajuste conforme necessário */
+    }
+
+
+</style>
+{% endblock %}
+{% block content %}
+<div class="row">
+    <div class="col-md-5">
+        <div class="card card-danger">
+            <div class="card-header">
+                <h3 class="card-title">Preencha a Carta</h3>
+            </div>
+            <div class="card-body">
+                <div class="form-container">
+                    <form action="." id="formletter" method="post" enctype="multipart/form-data"
+                          onsubmit="updateCKEditorData();">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" id="action" value="{{ action }}">
+                        <input type="hidden" name="table" value="{{ table }}">
+                        <input type="hidden" name="codigo" id="codigo" value="{{ codigo }}">
+                        <input type="hidden" name="refer" id="refer" value="{{ carta.reference_code }}">
+                        {{ form.media }}
+                        {{form.as_p}}
+                        {% block foot_botton %}
+                        <div class="card-footer">
+                            <button type="submit" class="btn btn-primary btn-flat">
+                                <i class="fas fa-save"></i> Guardar registro
+                            </button>
+                            <a href="{{ list_url }}" class="btn btn-danger btn-flat">
+                                <i class="fas fa-times"></i> Cancelar
+                            </a>
+                        </div>
+                        {% endblock %}
+                    </form>
+                </div>
+
+            </div>
+            <div class="card-footer">
+
+            </div>
+
+        </div>
+    </div>
+
+    <div class="col-md-7 letter">
+        <div class="card card-primary">
+            <div class="card-header">
+                <h3 class="card-title">Visualização da Carta</h3>
+            </div>
+            <div class="a4-page m-0">
+                <div class="a4-content">
+                    <section class="fullpage">
+                        <img src="{{icon}}" alt="{{icon}}">
+                    </section>
+                    <header>
+                        <p class="header-line negrito ">AO/À</p>
+                        <p class="header-line negrito " id="entity1">XXXXXXX</p>
+                        <p class="header-line negrito " id="job1">ATT. EXMO. SENHOR XXXXXXXX</p>
+                        <p class="header-line negrito " id="recipient1">DR. XXXXX</p>
+                        <p class="header-line negrito " id="city1">LUANDA</p>
+                    </header>
+                    <br>
+                    <br>
+                    <div class="row">
+
+                        <div class="col-3 p-0">
+                            <label id="lbl_reference_desti" class="m-0 gill-negrita">S/Referência</label>
+                            <input type="text" class="form-control" id="reference_desti">
+                        </div>
+                        <div class="col-3">
+                            <label id="lbl_data_desti" class="m-0 gill-negrita">S/Data</label>
+                            <input type="text" class="form-control" id="data_desti">
+                        </div>
+                        <div class="col-3" style="text-align: center">
+                            <label id="lbl_reference_number" class="m-0 gill-negrita">N/Referência</label>
+                            <input type="text" class="form-control gill-sans" id="reference_number">
+                        </div>
+                        <div class="col-3 pe-0" style="text-align: center">
+                            <label id="lbl_date_expedition" class="m-0 gill-negrita">Data de Expedição</label>
+                            <input type="text" class="form-control gill-sans" id="date_expedition"
+                                   value="{{carta.date_sent}}">
+                        </div>
+                    </div>
+                    <br>
+                    <div class="row m-0" style="text-align: center;">
+                        <label id="lbl_assunto" class="gill-negrita">Assunto:</label>&nbsp;&nbsp;
+                        <input type="text" class="form-control gill-sans" id="assunto">
+                    </div>
+                    <div class="carta" id="corpo2"></div>
+                    <p class="final-line"></p>
+                    <p class="final-line"></p>
+                    <p class="final-line"></p>
+                </div>
+            </div>
+            <div class="card-footer">
+            </div>
+        </div>
+    </div>
+
+    <script type="application/javascript">
+
+        var valid = true;
+
+        $('#formletter').on('submit', function (e) {
+            e.preventDefault();
+
+            var parameters = new FormData(this);
+
+
+            if (valid) {
+                submit_with_ajax(window.location.pathname, 'Aviso', 'Deseja realizar esta acção?', parameters, function () {
+                    location.href = '{{ list_url }}';
+                });
+            }
+        });
+
+        // Função para copiar valores do form1 para form2
+        function copyFormValues() {
+
+            let corpo = document.getElementById('cke_1_contents')
+
+            let corpo1 = document.getElementById('corpo2')
+
+            let data = document.getElementById('date_sent')
+            let data1 = document.getElementById('date_expedition')
+            let estado = document.getElementById('status')
+
+            let entity = document.getElementById('entity')
+            let entity1 = document.getElementById('entity1')
+
+            let job = document.getElementById('job')
+            let job1 = document.getElementById('job1')
+
+            let recipient = document.getElementById('recipient')
+            let recipient1 = document.getElementById('recipient1')
+
+            let city = document.getElementById('city')
+            let city1 = document.getElementById('city1')
+
+            // Seleciona todos os inputs e textareas do form1
+            // Seleciona todos os inputs e textareas do form1
+
+            // form1Elements.forEach((element) => {
+            //   const id = element.id.replace('1', '2'); // Ajusta o ID para o form2
+            //   const form2Element = document.getElementById(id);
+            //   if (form2Element) {
+            //     form2Element.value = element.value; // Copia o valor
+            //   }
+            // });
+
+            let action = document.getElementById('action')
+            let codigo = document.getElementById('codigo')
+            let refer = document.getElementById('refer')
+            let reference = document.getElementById('reference_number')
+            let time = document.getElementById('date_sent')
+            let time1 = document.getElementById('date_expedition')
+            let assunto = document.getElementById('title')
+            let assunto1 = document.getElementById('assunto')
+
+            time1.value = time.value;
+            time.addEventListener('blur', function (e) {
+                if (time.value !== '') {
+                    time1.value = time.value;
+                }
+            });
+
+
+            if (action.value === 'add') {
+                reference.value = codigo.value;
+            } else {
+                reference.value = refer.value;
+            }
+
+
+            assunto1.value = assunto.value;
+            assunto.addEventListener('change', function (e) {
+                if (assunto.value !== '') {
+                    assunto1.value = assunto.value;
+                }
+            });
+
+            // corpo1.innerHTML = corpo.getAll();
+            // corpo.addEventListener('blur', function (e) {
+            //     if (corpo.value !== '') {
+            //         corpo1.textContent = corpo.value;
+            //     }
+            // });
+            // Função para atualizar o corpo da carta a partir do CKEditor
+
+
+            data1.value = data.value;
+            data.addEventListener('blur', function (e) {
+                if (data.value !== '') {
+                    data1.value = data.value;
+                }
+            });
+
+            if (city.value !== '') {
+                city1.textContent = city.value.toUpperCase();
+            }
+            city.addEventListener('blur', function (e) {
+                if (city.value !== '') {
+                    city1.textContent = city.value.toUpperCase();
+                }
+            });
+
+            if (recipient.value !== '') {
+                recipient1.textContent = recipient.value.toUpperCase();
+            }
+            recipient.addEventListener('blur', function (e) {
+                if (recipient.value !== '') {
+                    recipient1.textContent = recipient.value.toUpperCase();
+                }
+            });
+
+            if (entity.value !== '') {
+                entity1.textContent = entity.value.toUpperCase();
+            }
+            entity.addEventListener('blur', function (e) {
+                if (entity.value !== '') {
+                    entity1.textContent = entity.value.toUpperCase();
+                }
+            });
+
+            if (job.value !== '') {
+                job1.textContent = 'EXMO.(A) ' + job.value.toUpperCase();
+            }
+            job.addEventListener('blur', function (e) {
+                if (job.value !== '') {
+                    job1.textContent = 'EXMO.(A) ' + job.value.toUpperCase();
+                }
+            });
+        }
+
+        // // Monitora mudanças no form1 e atualiza o form2
+        // document.querySelectorAll('#form1 input, #form1 textarea').forEach((element) => {
+        //     element.addEventListener('input', copyFormValues);
+        // });
+        //
+        // // Copia os valores iniciais ao carregar a página
+        window.onload = copyFormValues;
+
+
+    </script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const statusField = document.querySelector('#status');
+            //const comentariosField = document.querySelector('#comentarios-field');
+            const comentariosInput = document.querySelector('#coment_rejected');
+            const comentariosField = comentariosInput.parentElement;
+            comentariosField.style.display = 'none'
+
+            function toggleComentariosField() {
+
+                if (statusField.value === 'rejected') {
+                    comentariosField.style.display = 'block';
+                    comentariosInput.required = true;
+                } else if (statusField.value !== 'rejected' && comentariosInput.value !== '' && statusField.value !== 'sent' && statusField.value !== 'approved') {
+                    comentariosField.style.display = 'block';
+                    comentariosInput.required = false;
+                } else {
+                    comentariosField.style.display = 'none';
+                    comentariosInput.required = false;
+                }
+
+            }
+
+            statusField.addEventListener('change', toggleComentariosField);
+            toggleComentariosField();  // Chama a função na inicialização para definir o estado inicial
+
+            const protocolInput = document.querySelector('#protocol');
+            const protocolField = protocolInput.parentElement;
+            protocolField.style.display = 'none'
+
+            function toggleProtocolField() {
+                console.log(statusField.value);
+
+                if (statusField.value === 'sent') {
+                    protocolField.style.display = 'block';
+                    protocolInput.required = true;
+                } else if (statusField.value !== 'sent' && protocolInput.value !== '') {
+                    protocolField.style.display = 'block';
+                    protocolInput.required = false;
+                } else {
+                    protocolField.style.display = 'none';
+                    protocolInput.required = false;
+                }
+
+            }
+
+            statusField.addEventListener('change', toggleProtocolField);
+            toggleProtocolField();  // Chama a função na inicialização para definir o estado inicial
+
+        });
+    </script>
+    <script>
+
+
+        // Função para atualizar o corpo da carta a partir do CKEditor
+        // var editor = CKEDITOR.instances['content'];
+        // const content = editor.getData(); // Pega o conteúdo HTML do CKEditor
+        //
+        // document.getElementById("corpo2").innerHTML = content;
+
+        CKEDITOR.on('instanceReady', function (event) {
+            var editor = CKEDITOR.instances['content'];
+            const content = editor.getData();  // Agora não deve dar erro
+            document.getElementById("corpo2").innerHTML = content;
+        })
+
+        function updatePreviewContent() {
+            // Verifica se o CKEditor está disponível e inicializado
+            var editor = CKEDITOR.instances['content'];
+
+            if (editor) {
+                const content = editor.getData(); // Pega o conteúdo HTML do CKEditor
+                console.log(content)
+                document.getElementById("corpo2").innerHTML = content; // Atualiza a pré-visualização
+            }
+        }
+
+        // Esperar até o CKEditor estar pronto para adicionar o evento
+        CKEDITOR.on('instanceReady', function (event) {
+            var editor = event.editor;  // Usando o editor do evento
+
+            // Verifica se a instância foi corretamente criada
+            if (editor) {
+                // Adiciona o evento de mudança no editor para atualizar a pré-visualização
+                editor.on('change', function () {
+                    updatePreviewContent();
+                });
+            }
+        });
+
+        function updateCKEditorData() {
+            // Pega a instância do CKEditor
+            var editorInstance = CKEDITOR.instances['content'];
+            if (editorInstance) {
+                // Atualiza o valor do textarea com o conteúdo do CKEditor
+                editorInstance.updateElement();
+            }
+        }
+    </script>
+
+
+    <style>
+        .custom-paragraph {
+            margin: 4px 0 !important;
+            line-height: 1.2 !important;
+        }
+    </style>
+</div>
+{% endblock %}
+

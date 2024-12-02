@@ -1,0 +1,679 @@
+{% extends 'layout.html' %}
+{% load static %}
+{% block head %}
+<script src="{% static 'lib/highcharts-8.1.2/highcharts.js' %}"></script>
+<script src="{% static 'lib/highcharts-8.1.2/modules/exporting.js' %}"></script>
+<script src="{% static 'lib/highcharts-8.1.2/modules/export-data.js' %}"></script>
+<script src="{% static 'lib/highcharts-8.1.2/modules/accessibility.js' %}"></script>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-lg-12">
+            <div>
+                <div class="row">
+                    <div class="col-lg-3 col-6">
+
+                        <div class="small-box bg-info">
+                            <div class="inner">
+                                <h3>{{sent_number}}</h3>
+                                <p>Cartas enviadas</p>
+                            </div>
+                            <div class="icon">
+                                <i class="ion ion-bag"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-3 col-6">
+
+                        <div class="small-box bg-success">
+                            <div class="inner">
+                                <h3>{{approved_number}}</h3>
+                                <p>Cartas Aprovadas</p>
+                            </div>
+                            <div class="icon">
+                                <i class="ion ion-stats-bars"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-3 col-6">
+
+                        <div class="small-box bg-warning">
+                            <div class="inner">
+                                <h3>{{submitted_number}}</h3>
+                                <p>Cartas por aprovar</p>
+                            </div>
+                            <div class="icon">
+                                <i class="ion ion-person-add"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-3 col-6">
+                        <div class="small-box bg-danger">
+                            <div class="inner">
+                                <h3>{{rejected_number}}</h3>
+                                <p>Cartas Rejeitadas</p>
+                            </div>
+                            <div class="icon">
+                                <i class="ion ion-pie-graph"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+
+            </div>
+            <div id="container1"></div>
+            <div id="container2"></div>
+            <div id="container3"></div>
+            <div id="container4"></div>
+        </div>
+    </div>
+    <br>
+    <div class="row">
+        <div class="col-lg-12">
+            <div id="container-pie"></div>
+        </div>
+    </div>
+    <br>
+    <div class="row">
+        <div class="col-lg-12">
+            <div id="container-online"></div>
+        </div>
+    </div>
+    <br>
+</div>
+<script>
+    // Função para carregar os dados via AJAX (método POST)
+    function loadData() {
+
+        $.ajax({
+            // url: "{% url 'erp:dashboard' %}",
+            url: window.location.pathname, //window.location.pathname
+            type: "POST",
+
+            data: {
+                'action': 'graph_letter_department_year'
+            },
+
+            dataType: 'json',
+            success: function (data) {
+                renderChart(data.data.departments, data.data.years);
+            }
+        });
+        $.ajax({
+            url: window.location.pathname, //window.location.pathname
+            type: "POST",
+
+            data: {
+                'action': 'get_status_data'
+            },
+            dataType: 'json',
+            success: function (data) {
+                renderStatusChart(data.data.statuses, data.data.totals);
+            }
+        });
+        $.ajax({
+            url: window.location.pathname, //window.location.pathname
+            type: "POST",
+
+            data: {
+                'action': 'get_dashboard_entity_data'
+            },
+
+            dataType: 'json',
+            success: function (data) {
+              if (data.data &&   data.data.entities && data.data.entity_totals) {
+                renderEntityChart(data.data.entities, data.data.entity_totals);
+            } else {
+                console.error("Dados inválidos recebidos para o gráfico de Função/Entidade.");
+            }
+        },
+        error: function(err) {
+            console.error("Erro ao carregar os dados do gráfico de Função/Entidade:", err);
+        }
+
+        });
+         $.ajax({
+            url: window.location.pathname, //window.location.pathname
+            type: "POST",
+
+            data: {
+                'action': 'get_letters_by_department_status'
+            },
+
+            dataType: 'json',
+            success: function (data) {
+                console.log(data)
+              if (data.data &&   data.data.departments && data.data.series) {
+                renderStatusDepartmentChart(data.data.departments, data.data.series);
+            } else {
+                console.error("Dados inválidos recebidos para o gráfico de Função/Entidade.");
+            }
+        },
+        error: function(err) {
+            console.error("Erro ao carregar os dados do gráfico de Função/Entidade:", err);
+        }
+
+        });
+    }
+
+    // Função para renderizar o gráfico
+    function renderChart(departments, years) {
+        Highcharts.chart('container2', {
+            title: {
+                text: 'Cartas por Departamento',
+                align: 'center'
+            },
+            xAxis: {
+                categories:
+                departments
+            },
+            yAxis: {
+                title: {
+                    text: 'Total de cartas'
+                }
+            },
+            tooltip: {
+                valueSuffix: ' Cartas'
+            },
+            plotOptions: {
+                series: {
+                    borderRadius: ''
+                }
+            },
+            series: years
+        });
+
+    }
+
+    function renderStatusChart(statuses, totals) {
+        Highcharts.chart('container1', {
+            chart: {
+                type: 'pie'
+            },
+            title: {
+                text: 'Cartas por Status'
+            },
+            tooltip: {
+                pointFormat: '{series.name}: <b>{point.percentage:.1f}%</b>'
+            },
+            plotOptions: {
+                pie: {
+                    allowPointSelect: true,
+                    cursor: 'pointer',
+                    dataLabels: {
+                        enabled: true,
+                        format: '<b>{point.name}</b>: {point.percentage:.1f} %'
+                    }
+                }
+            },
+            series: [{
+                name: 'Cartas',
+                colorByPoint: true,
+                data: statuses.map(function (status, i) {
+                    return {name: status, y: totals[i]};
+                })
+            }]
+        });
+    }
+    function renderEntityChart(entities, entity_totals) {
+        Highcharts.chart('container3', {
+            chart: {
+                type: 'column'  // Ou 'pie' se preferir gráfico de pizza
+            },
+            title: {
+                text: 'Cartas por Entidade'
+            },
+            xAxis: {
+                categories: entities,  // Colocar as funções e entidades juntas no eixo X
+                title: {
+                    text: 'Entidades'
+                }
+            },
+            yAxis: {
+                title: {
+                    text: 'Total de Cartas'
+                }
+            },
+            series: [
+                {
+                    name: 'Entidades',
+                    colorByPoint: true,
+                    data: entity_totals  // Totais de cartas por entidade
+                }
+            ]
+        });
+    }
+      function renderStatusDepartmentChart(departments, series) {
+        Highcharts.chart('container4', {
+            chart: {
+                type: 'bar'  // Ou 'pie' se preferir gráfico de pizza
+            },
+            title: {
+                text: 'Cartas por Status e Departamento'
+            },
+            xAxis: {
+                categories: departments,  // Colocar as funções e entidades juntas no eixo X
+                title: {
+                    text: 'Entidades'
+                }
+            },
+            yAxis: { min:0,
+                title: {
+                    text: 'Total de Cartas'
+                },
+                allowDecimals: false
+            },
+            plotOptions: {
+                column: {
+                    stacking: 'normal'
+                }
+            },
+            series: series  // Totais de cartas por entidade
+
+        });
+    }
+    // Carregar os dados iniciais (ano mais recente)
+    loadData();
+</script>
+<script type="application/javascript">
+    /*
+               var graphcolumn = Highcharts.chart('container', {
+                   chart: {
+                       type: 'column'
+                   },
+                   title: {
+                       text: 'Reporte das cartas do ano 2024'
+                   },
+                   subtitle: {
+                       text: 'Reporte de columnas'
+                   },
+                   xAxis: {
+                       categories: [
+                           'Janeiro',
+                           'Fevereiro',
+                           'Março',
+                           'Abril',
+                           'Maio',
+                           'Junho',
+                           'Julho',
+                           'Agosto',
+                           'Setembro',
+                           'Outubro',
+                           'Novembro',
+                           'Dezembro'
+                       ],
+                       crosshair: true
+                   },
+                   yAxis: {
+                       min: 0,
+                       title: {
+                           text: 'Valores $'
+                       }
+                   },
+                   tooltip: {
+                       headerFormat: '<span style="font-size:10px">{point.key}</span><table>',
+                       pointFormat: '<tr><td style="color:{series.color};padding:0">{series.name}: </td>' +
+                           '<td style="padding:0"><b>{point.y:.1f} $</b></td></tr>',
+                       footerFormat: '</table>',
+                       shared: true,
+                       useHTML: true
+                   },
+                   plotOptions: {
+                       column: {
+                           pointPadding: 0.2,
+                           borderWidth: 0
+                       }
+                   },
+               });
+
+
+
+               var graphpie = Highcharts.chart('container-pie', {
+                   chart: {
+                       plotBackgroundColor: null,
+                       plotBorderWidth: null,
+                       plotShadow: false,
+                       type: 'pie'
+                   },
+                   title: {
+                       text: 'Porcentaje de venta de productos por el mes de Junio del año 2020'
+                   },
+                   tooltip: {
+                       pointFormat: '{series.name}: <b>{point.percentage:.1f}%</b>'
+                   },
+                   accessibility: {
+                       point: {
+                           valueSuffix: '%'
+                       }
+                   },
+                   plotOptions: {
+                       pie: {
+                           allowPointSelect: true,
+                           cursor: 'pointer',
+                           dataLabels: {
+                               enabled: true,
+                               format: '<b>{point.name}</b>: {point.percentage:.1f} %'
+                           }
+                       }
+                   },
+               });
+
+              Highcharts.chart('container-online', {
+                   chart: {
+                       type: 'spline',
+                       animation: Highcharts.svg, // don't animate in old IE
+                       marginRight: 10,
+                       events: {
+                           load: function () {
+                               var series = this.series[0];
+                               setInterval(function () {
+                                   $.ajax({
+                                       url: window.location.pathname, //window.location.pathname
+                                       type: 'POST',
+                                       data: {
+                                           'action': 'get_graph_online'
+                                       },
+                                       dataType: 'json',
+                                   }).done(function (data) {
+                                       if (!data.hasOwnProperty('error')) {
+                                           var x = (new Date()).getTime();
+                                           series.addPoint([x, data.y], true, true);
+                                           return false;
+                                       }
+                                       message_error(data.error);
+                                   }).fail(function (jqXHR, textStatus, errorThrown) {
+                                       alert(textStatus + ': ' + errorThrown);
+                                   }).always(function (data) {
+
+                                   });
+                               }, 1000);
+                           }
+                       }
+                   },
+
+                   time: {
+                       useUTC: false
+                   },
+
+                   title: {
+                       text: 'Live random data'
+                   },
+
+                   accessibility: {
+                       announceNewData: {
+                           enabled: true,
+                           minAnnounceInterval: 15000,
+                           announcementFormatter: function (allSeries, newSeries, newPoint) {
+                               if (newPoint) {
+                                   return 'New point added. Value: ' + newPoint.y;
+                               }
+                               return false;
+                           }
+                       }
+                   },
+
+                   xAxis: {
+                       type: 'datetime',
+                       tickPixelInterval: 150
+                   },
+
+                   yAxis: {
+                       title: {
+                           text: 'Value'
+                       },
+                       plotLines: [{
+                           value: 0,
+                           width: 1,
+                           color: '#808080'
+                       }]
+                   },
+
+                   tooltip: {
+                       headerFormat: '<b>{series.name}</b><br/>',
+                       pointFormat: '{point.x:%Y-%m-%d %H:%M:%S}<br/>{point.y:.2f}'
+                   },
+
+                   legend: {
+                       enabled: false
+                   },
+
+                   exporting: {
+                       enabled: false
+                   },
+
+                   series: [{
+                       name: 'Random data',
+                       data: (function () {
+                           // generate an array of random data
+                           var data = [],
+                               time = (new Date()).getTime(),
+                               i;
+
+                           for (i = -19; i <= 0; i += 1) {
+                               data.push({
+                                   x: time + i * 1000,
+                                   y: Math.random()
+                               });
+                           }
+                           return data;
+                       }())
+                   }]
+               });
+
+               function get_graph_sales_year_month() {
+                   $.ajax({
+                       url: window.location.pathname, //window.location.pathname
+                       type: 'POST',
+                       data: {
+                           'action': 'get_graph_sales_year_month'
+                       },
+                       dataType: 'json',
+                   }).done(function (data) {
+                       if (!data.hasOwnProperty('error')) {
+                           graphcolumn.addSeries(data);
+                           return false;
+                       }
+                       message_error(data.error);
+                   }).fail(function (jqXHR, textStatus, errorThrown) {
+                       alert(textStatus + ': ' + errorThrown);
+                   }).always(function (data) {
+
+                   });
+               }
+
+               function get_graph_sales_products_year_month() {
+                   $.ajax({
+                       url: window.location.pathname, //window.location.pathname
+                       type: 'POST',
+                       data: {
+                           'action': 'get_graph_sales_products_year_month'
+                       },
+                       dataType: 'json',
+                   }).done(function (data) {
+                       if (!data.hasOwnProperty('error')) {
+                           graphpie.addSeries(data);
+                           return false;
+                       }
+                       message_error(data.error);
+                   }).fail(function (jqXHR, textStatus, errorThrown) {
+                       alert(textStatus + ': ' + errorThrown);
+                   }).always(function (data) {
+
+                   });
+               }
+
+               $(function () {
+
+                   get_graph_sales_year_month();
+
+                   get_graph_sales_products_year_month();
+
+               });
+
+       */
+
+    // Highcharts.chart('container', {
+    //     chart: {
+    //         type: 'column'
+    //     },
+    //     title: {
+    //         text: 'Reporte das cartas por departamento de 2024',
+    //         align: 'left'
+    //     },
+    //     subtitle: {
+    //         text:
+    //             'Reporte por colunas',
+    //         align: 'left'
+    //     },
+    //     xAxis: {
+    //         categories: [
+    //             'Janeiro',
+    //             'Fevereiro',
+    //             'Março',
+    //             'Abril',
+    //             'Maio',
+    //             'Junho',
+    //             'Julho',
+    //             'Agosto',
+    //             'Setembro',
+    //             'Outubro',
+    //             'Novembro',
+    //             'Dezembro'
+    //         ],
+    //         crosshair: true,
+    //         accessibility: {
+    //             description: 'Countries'
+    //         }
+    //     },
+    //     yAxis: {
+    //         min: 0,
+    //         title: {
+    //             text: ''
+    //         }
+    //     },
+    //     tooltip: {
+    //         valueSuffix: ''
+    //     },
+    //     plotOptions: {
+    //         column: {
+    //             pointPadding: 0.2,
+    //             borderWidth: 0
+    //         }
+    //     },
+    //     series: [
+    //         {
+    //             name: 'Quantidade de cartas',
+    //             data: [387749, 280000, 129000, 64300, 54000, 34300, 34300, 34300, 34300, 34300, 34300, 34300]
+    //         },
+    //         {
+    //             name: 'Quantidade de cartas',
+    //             data: [387749, 280000, 129000, 64300, 54000, 34300, 34300, 34300, 34300, 34300, 34300, 34300]
+    //         }
+    //         ,
+    //         {
+    //             name: 'Quantidade de cartas',
+    //             data: [387749, 280000, 129000, 64300, 54000, 34300, 34300, 34300, 34300, 34300, 34300, 34300]
+    //         }
+    //     ]
+    // });
+    // Data retrieved from https://www.ssb.no/energi-og-industri/olje-og-gass/statistikk/sal-av-petroleumsprodukt/artikler/auka-sal-av-petroleumsprodukt-til-vegtrafikk
+    // Highcharts.chart('container1', {
+    //     title: {
+    //         text: 'Sales of petroleum products March, Norway',
+    //         align: 'left'
+    //     },
+    //     xAxis: {
+    //         categories: [
+    //             dep
+    //         ]
+    //     },
+    //     yAxis: {
+    //         title: {
+    //             text: 'Million liters'
+    //         }
+    //     },
+    //     tooltip: {
+    //         valueSuffix: ' million liters'
+    //     },
+    //     plotOptions: {
+    //         series: {
+    //             borderRadius: ''
+    //         }
+    //     },
+    //     series: [
+    //         {
+    //         type: 'column',
+    //         name: '2020',
+    //         data: [59, 83, 65, 228, 184]
+    //     }, {
+    //         type: 'column',
+    //         name: '2021',
+    //         data: [24, 79, 72, 240, 167]
+    //     }, {
+    //         type: 'column',
+    //         name: '2022',
+    //         data: [58, 88, 75, 250, 176]
+    //     },
+    //         {
+    //         type: 'column',
+    //         name: '2023',
+    //         data: [58, 88, 75, 250, 176]
+    //     },
+    //         {
+    //         type: 'column',
+    //         name: '2024',
+    //         data: [58, 88, 75, 250, 176]
+    //     },
+    //         {
+    //         type: 'line',
+    //         step: 'center',
+    //         name: 'Average',
+    //         data: [47, 83.33, 70.66, 239.33, 175.66],
+    //         marker: {
+    //             lineWidth: 2,
+    //             lineColor: Highcharts.getOptions().colors[3],
+    //             fillColor: 'white'
+    //         }
+    //     }, {
+    //         type: 'pie',
+    //         name: 'Total',
+    //         data: [{
+    //             name: '2020',
+    //             y: 619,
+    //             color: Highcharts.getOptions().colors[0], // 2020 color
+    //             dataLabels: {
+    //                 enabled: true,
+    //                 distance: -50,
+    //                 format: '{point.total} M',
+    //                 style: {
+    //                     fontSize: '15px'
+    //                 }
+    //             }
+    //         }, {
+    //             name: '2021',
+    //             y: 586,
+    //             color: Highcharts.getOptions().colors[1] // 2021 color
+    //         }, {
+    //             name: '2022',
+    //             y: 647,
+    //             color: Highcharts.getOptions().colors[2] // 2022 color
+    //         }],
+    //         center: [75, 65],
+    //         size: 100,
+    //         innerSize: '70%',
+    //         showInLegend: false,
+    //         dataLabels: {
+    //             enabled: false
+    //         }
+    //     }]
+    // });
+
+</script>
+
+
+{% endblock %}

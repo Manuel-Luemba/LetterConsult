@@ -1,0 +1,98 @@
+{% extends 'list.html' %}
+{% load static %}
+{% block head_list %}
+<link href="{% static 'lib/jquery-ui-1.12.1/jquery-ui.min.css' %}" rel="stylesheet"/>
+<script src="{% static 'lib/jquery-ui-1.12.1/jquery-ui.min.js' %}"></script>
+<link href="{% static 'lib/select2-4.0.13/css/select2-bootstrap4.min.css' %}" rel="stylesheet"/>
+<script src="{% static 'lib/moment-2.25.3/moment.js' %}"></script>
+<script src="{% static 'lib/moment-2.25.3/moment-with-locales.js' %}"></script>
+<script src="{% static 'lib/tempusdominus-bootstrap-4/tempusdominus-bootstrap-4.min.js' %}"></script>
+<link href="{% static 'lib/tempusdominus-bootstrap-4/tempusdominus-bootstrap-4.min.css' %}" rel="stylesheet"/>
+
+
+
+
+
+    <script src="{% static 'lib/daterangepicker-3.1/daterangepicker.js' %}"></script>
+    <link rel="stylesheet" href="{% static 'lib/daterangepicker-3.1/daterangepicker.css' %}"/>
+
+    <link rel="stylesheet" href="{% static 'lib/datatables-1.10.20/plugins/buttons-1.6.1/css/buttons.bootstrap.min.css' %}"/>
+    <script src="{% static 'lib/datatables-1.10.20/plugins/buttons-1.6.1/js/dataTables.buttons.min.js' %}" type="text/javascript"></script>
+    <script src="{% static 'lib/datatables-1.10.20/plugins/jszip-2.5.0/jszip.min.js' %}" type="text/javascript"></script>
+    <script src="{% static 'lib/datatables-1.10.20/plugins/pdfmake-0.1.36/pdfmake.min.js' %}" type="text/javascript"></script>
+    <script src="{% static 'lib/datatables-1.10.20/plugins/pdfmake-0.1.36/vfs_fonts.js' %}" type="text/javascript"></script>
+    <script src="{% static 'lib/datatables-1.10.20/plugins/buttons-1.6.1/js/buttons.html5.min.js' %}" type="text/javascript"></script>
+
+
+
+
+<script src="{% static 'lib/daterangepicker-3.1/daterangepicker.js' %}"></script>
+<link rel="stylesheet" href="{% static 'lib/daterangepicker-3.1/daterangepicker.css' %}">
+<script src="{% static 'letter/js/report.js' %}"></script>
+{% endblock %}
+
+{% block content %}
+<div class="card card-primary">
+    <div class="card-header">
+        <h3 class="card-title">
+            <i class="fas fa-chart-bar"></i>
+            {{ title }}
+        </h3>
+    </div>
+    <div class="card-body">
+
+
+        <form id="filter-form">
+
+
+            <div class="row">
+                {{ form.as_div }}
+
+
+            <div class="col-sm-3">
+
+                <div class="form-group">
+                    <label style="visibility: hidden">Select</label>
+                    <div class="form-group">
+                        <button type="submit" class="btn btn-info">Filtrar</button>
+                    </div>
+                </div>
+            </div>
+              </div>
+        </form>
+        <hr>
+        <table class="table" id="data">
+            <thead>
+            <tr>
+                <!--                <th scope="col" style="width: 15%">Titulo</th>-->
+                <th scope="col" style="width: 10%">Referência</th>
+                <th scope="col" style="width: 15%">Autor</th>
+                <th scope="col" style="width: 10%">Departamento</th>
+                <th scope="col" style="width: 10%">Entidade</th>
+                <th scope="col" style="width: 10%">Cidade</th>
+                <th scope="col" style="width: 10%">Data de Expedição</th>
+                <th scope="col" style="width: 7%">Estado</th>
+            </tr>
+            </thead>
+            <tbody>
+
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card-footer">
+        {% block footer %}
+        <a href="{{ list_url }}" class="btn btn-success btn-flat">
+            <i class="fas fa-sync"></i> Actualizar
+        </a>
+        {% endblock %}
+    </div>
+
+</div>
+{% endblock %}
+
+{% block js %}
+
+{% endblock %}
+
+

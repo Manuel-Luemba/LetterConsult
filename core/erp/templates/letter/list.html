@@ -1,0 +1,33 @@
+{% extends 'list.html' %}
+{% load static %}
+{% block  head_list %}
+
+
+<script src="{% static 'letter/js/list.js' %}"></script>
+{% endblock %}
+
+{% block columns %}
+<tr>
+    <th scope="col" style="width: 5%">#</th>
+    <th scope="col" style="width: 20%">Titulo</th>
+    <th scope="col" style="width: 10%">Referência</th>
+    <th scope="col" style="width: 10%">Data de envio</th>
+    <th scope="col" style="width: 15%">Autor</th>
+    <th scope="col" style="width: 7%">Estado</th>
+    <th scope="col" style="width: 10%">Opções</th>
+</tr>
+{% endblock %}
+
+{% block rows %}
+
+{% endblock %}
+
+{% block footer %}
+
+{% endblock %}
+
+{% block js %}
+<script src="{% static 'letter/js/list.js' %}"></script>
+{% endblock %}
+
+

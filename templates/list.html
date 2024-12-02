@@ -1,0 +1,99 @@
+{% extends 'layout.html' %}
+{% load static %}
+{% block head %}
+<link rel="stylesheet" href="{% static 'lib/DataTables-1.13.8/css/dataTables.bootstrap4.min.css' %}">
+<link rel="stylesheet"
+      href="{% static 'lib/DataTables-1.13.8/plugins/Responsive-2.5.0/css/responsive.bootstrap.min.css' %}">
+<script src="{% static 'lib/DataTables-1.13.8/js/jquery.dataTables.min.js' %}"></script>
+<script src="{% static 'lib/DataTables-1.13.8/js/dataTables.bootstrap4.min.js' %}"></script>
+<script src="{% static 'lib/DataTables-1.13.8/plugins/Responsive-2.5.0/js/dataTables.responsive.min.js' %}"></script>
+<script src="{% static 'lib/DataTables-1.13.8/plugins/Responsive-2.5.0/js/responsive.bootstrap4.min.js' %}"></script>
+
+{% block  head_list %}
+
+{% endblock %}
+
+{% endblock %}
+
+{% block content %}
+<div class="card card-primary">
+    <div class="card-header">
+        <h3 class="card-title">
+            <i class="fas fa-search"></i>
+            {{ title }}
+        </h3>
+    </div>
+    <div class="card-body">
+        <table class="table" id="data">
+            <thead>
+            {% block columns %}
+
+            {% endblock %}
+            </thead>
+            <tbody>
+            {% block rows %}
+
+            {% endblock %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card-footer">
+        {% block footer %}
+            <a href="{{ create_url }}" class="btn btn-primary btn-flat btnTest">
+                <i class="fas fa-plus"></i> Nuevo registro
+            </a>
+
+            <a href="{{ list_url }}" class="btn btn-success btn-flat">
+                        <i class="fas fa-sync"></i> Actualizar
+                    </a>
+         {% endblock %}
+    </div>
+
+</div>
+{% endblock %}
+
+{% block js %}
+<script type="application/javascript">
+    $(function () {
+        $('#data').DataTable({
+            responsive: true,
+            autoWidth: false,
+            "language": {
+                url: "{% static 'lib/DataTables-1.13.8/pt_br.json' %}"
+            }
+
+        });
+    });
+
+    $(function () {
+        $('.btnTest').on('click', function () {
+            $.ajax({
+                url: '{{ list_url }}',
+                type: 'POST',
+                data: {
+                    id: 1
+                },
+
+                datatype: 'json'
+            })
+                .done(
+                    function (data) {
+                        console.log(data)
+                    }
+                )
+                .fail(
+                    function (jqXHR, textStatus, errorThrown) {
+                        alert(textStatus + ':' + errorThrown)
+                    }
+                )
+                .always(
+                    function () {
+
+                    }
+                )
+
+        })
+    })
+</script>
+{% endblock %}

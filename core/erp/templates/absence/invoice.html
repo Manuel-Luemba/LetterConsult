@@ -1,0 +1,403 @@
+<!doctype html>
+{% load static %}
+<html lang="es">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Reporte PDF</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css"
+          integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
+    <style>
+        @page {
+            size: "A4";
+            margin: 1.0cm 1.5cm 3.5cm 1.5cm;
+        }
+        body {
+            width: 100% !important;
+            height: 100%;
+            background: #fff;
+            color: black;
+            font-size: 100%;
+            font-family: 'Roboto', sans-serif;
+            line-height: 1.65;
+            -webkit-font-smoothing: antialiased;
+            -webkit-text-size-adjust: none;
+        }
+  #lbl_nome{
+        width:10%;
+        }
+
+
+       #nome {
+            height:20%;
+            width:89%;
+
+        }
+
+
+   #lbl_num{
+         width:15%;
+        }
+
+        #num{
+
+            width:10%;
+        }
+
+        #lbl_dept{
+         width:10%;
+        }
+
+
+        #dept{
+
+            width:63%;
+        }
+
+           #lbl_director{
+        width:10%;
+        }
+    #director {
+
+            width:89%;
+
+        }
+
+        input[type="text"] {
+            border: none 1px solid #000;
+            height:20%;
+            padding:0%;
+            }
+
+         input[type="date"] {
+            border: none 1px solid #000;
+            height:20%;
+            padding:0%;
+            }
+
+     #inicio {
+            width: 35%;
+        }
+
+        #final {
+            width: 43%;
+        }
+
+        #motivo{
+            width:86%
+        }
+
+             /* Estilize o botão de rádio */
+        input[type="radio"] {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #333;
+            border-radius: 0; /* Tornar o botão quadrado */
+            outline: none;
+             margin-right: 10px; /* Espaço entre o botão e a label */
+        }
+
+        /* Estilize o botão de rádio quando estiver selecionado */
+        input[type="radio"]:checked {
+            background-color: #333;
+
+   }
+
+         input[type="text"], input[type="date"] {
+        border: none;
+        border-bottom: 1px solid #000; /* Cor da borda inferior (preto neste caso) */
+        disable:true
+    }
+
+        img {
+        float: left; /* Alinha a imagem à esquerda */
+        margin-right: 10px; /* Espaçamento entre a imagem e o conteúdo adjacente */
+        width: 200px;
+        height: 30px;
+    }
+
+        /* Torna todos os inputs apenas de leitura */
+input {
+    pointer-events: none;
+}
+
+        .sign > * input {
+          height: 20px;
+        }
+    </style>
+
+
+</head>
+<body>
+
+<main class="container">
+
+<input type="hidden" name="reason" id="reason" value="{{absence.reason}}">
+
+    <section class="fullpage">
+        <img src="{{icon}}" alt="{{icon}}">
+    </section>
+<br>
+<br>
+<br>
+
+    <p>
+    <h2 class="title" style="text-align:right; color:#848988; font-weight:bold"> &nbsp; &nbsp;Ficha de Pedido de
+        Ausência &nbsp; &nbsp;</h2>
+    </p>
+    <br>
+    <div class="row">
+        <div class="col-12 subtitle" style="color: white;background-color:#19a093;text-align:center; font-weight:bold ">
+            Informações sobre
+            a Ausência
+        </div>
+    </div>
+    <br>
+    <div class="row">
+
+        <label id="lbl_nome" class="m-0">Funcionário: </label> <input type="text" class="form-control" id="nome" value="{{absence.user_created.get_full_name}}">
+
+    </div>
+
+    <div class="row">
+
+        <label id="lbl_num">Número do funcionário: </label>
+
+        <input type="text" class="form-control" id="num" value="{{absence.user_created.id}}"> &nbsp;&nbsp;
+
+        <label id="lbl_dept"> Departamento: </label>
+
+        <input type="text" class="form-control" id="dept" value="{{absence.user_created.department}}">
+    </div>
+
+    <div class="row">
+
+        <label id="lbl_director" class="m-0">Director: </label> <input type="text" class="form-control" id="director" value="{{emp.director}}">
+
+    </div>
+    <br>
+    <div class="row">
+        <p>Tipo de Ausência Solicitado:</p>
+    </div>
+
+    <div id="tipo"></div>
+
+
+
+    &nbsp;
+    <div class="row">
+
+        <label id="lbl_inicio">Datas de Ausência De: </label>&nbsp;&nbsp;&nbsp;&nbsp;
+
+        <input type="text" class="form-control" id="inicio"  value="{{absence.start_date}}">&nbsp;&nbsp;&nbsp;&nbsp;
+
+        <label id="lbl_final"> Até: </label>&nbsp;&nbsp;&nbsp;&nbsp;
+
+        <input type="text" class="form-control" id="final" value="{{absence.end_date}}">
+    </div>
+
+    <div class="row" style ="text-align: center;">
+
+        <label id="lbl_motivo">Motivo da Aus&ecirc;ncia:</label>&nbsp;&nbsp;
+
+        <input type="text" class="form-control" id="motivo">
+    </div>
+    &nbsp;
+    <div class="row" style="text-align: center">
+        <p style="text-align: center; font-size: 14px; font-style: italic">Os pedidos de asusencia (&aacute; excep&ccedil;&atilde;o da aus&ecirc;ncia por do&ecirc;n&ccedil;a) t&ecirc;m
+            de
+            seer submetidos com mais dois dias de antecend&ecirc;ncia relativamente ao primeiro dia de
+            aus&ecirc;ncia.</p>
+    </div>
+    &nbsp;
+
+    <div class="row sign">
+        <div class="col-8 pl-0">
+            <input class="form-control" type="text" value="{{absence.user_created.get_full_name}}">
+            <p class="m-0">Assinatura do funcion&aacute;rio&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;
+                &nbsp; &nbsp; &nbsp;
+                &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;
+                &nbsp;
+                &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;
+                &nbsp;
+                &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;
+                &nbsp;
+                &nbsp; &nbsp; &nbsp; &nbsp;</p>
+        </div>
+
+        <div class="col-4 pr-0">
+            <input class="form-control" type="text" value="{{absence.date_created |date:'Y-m-d'}}}">
+            <p class="m-0">Data</p>
+        </div>
+    </div>
+    &nbsp;
+    <div class="row">
+        <div class="col-12 subtitle" style="color: white;background-color:#19a093;text-align:center; font-weight:bold ">
+            Estado de Aprova&ccedil;&atilde;o
+        </div>
+    </div>
+    &nbsp;
+    <div class="row">
+        <div class="col-12 subtitle" style="text-align:left; font-weight:bold ">
+            <input type="radio" name="estado" id="aprovada">
+            <label for="aprovada">Aprovada</label>
+        </div>
+        <div class="col-12 subtitle" style="text-align:left; font-weight:bold ">
+            <input type="radio" name="estado" id="rejeitada">
+            <label for="rejeitada">Rejeitada</label>
+        </div>
+    </div>
+    &nbsp;
+    <div class="row">
+        <p>Coment&aacute;rios:</p>
+        <div class="col-12" style="border: 1px solid #ccc; height: 200px: width:200px">
+            {{absence.obs}}
+        </div>
+    </div>
+    &nbsp;
+
+    <div class="row sign">
+        <div class="col-8 pl-0">
+            <input class="form-control" type="text" value="{{absence.user_created.department.manager.get_full_name}}">
+            <p class="m-0">Assinatura do Respons&aacute;vel &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;
+                &nbsp; &nbsp;
+                &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;
+                &nbsp;
+                &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;
+                &nbsp;
+                &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;
+                &nbsp;
+                &nbsp; &nbsp; &nbsp; &nbsp;</p>
+        </div>
+
+        <div class="col-4 pr-0">
+            <input class="form-control" type="text" value="{{absence.date_updated}}">
+            <p class="m-0">Data</p>
+        </div>
+    </div>
+
+    <script>
+const reason = document.getElementById("reason").value;
+
+window.addEventListener('load', function() {
+document.getElementById("aprovada").checked=true;
+
+
+// Lista de motivos
+    const motivos = ["Trabalho", "Estudo", "Lazer"];
+
+const lista = [
+        "Doença",
+        "Férias",
+        "Licença de Noivo",
+        "Licença Sem Vencimento",
+        "Serviço Militar",
+         "Serviço de Jurado",
+          "Maternidade/Paternidade",
+          "Aniversário",
+    ];
+
+    const listaMotivos = [
+        "Doença",
+        "Férias",
+        "Licença de Noivo",
+        "Licença Sem Vencimento",
+        "Serviço Militar",
+         "Serviço de Jurado",
+          "Maternidade/Paternidade",
+          "Aniversário",
+          "Outros"
+    ];
+    // Função para criar botões de rádio
+    function criarBotoesRadio() {
+        const container = document.getElementById("tipo");
+
+
+        let row = document.createElement("div");
+        row.className="row"
+
+        container.innerHTML = "";
+        listaMotivos.length
+        listaMotivos.forEach((tipo, index) => {
+
+
+            let col = document.createElement("div");
+            col.className="col-3"
+
+
+            const radioBtn = document.createElement("input");
+
+            radioBtn.className = `radio ${tipo}`;
+            radioBtn.type = "radio";
+            radioBtn.id = `tipo-${index}`;
+            radioBtn.name = "tipo";
+            radioBtn.value = tipo;
+
+
+            const label = document.createElement("label");
+            label.htmlFor = `tipo-${index}`;
+            label.textContent = tipo;
+
+            col.appendChild(radioBtn);
+            col.appendChild(label);
+               if(index % 4 == 0 ){
+                    console.log(index)
+                   row = document.createElement("div");
+                   row.className="row"
+               }
+            row.appendChild(col);
+
+
+
+
+            container.appendChild(row);
+
+            //container.appendChild(document.createElement("br"));
+        });
+
+}
+
+function verificarMotivo(reason, lista) {
+      let rad =  document.querySelectorAll('.radio');
+      let check = false;
+      rad.forEach((element) =>{
+
+
+        if(element.value == reason){
+         console.log(element, "trave")
+            element.checked = true;
+             check =true;
+
+        }
+
+
+     });
+
+     if(check == false){
+        let v = document.querySelector('.Outros');
+        v.checked = true;
+     }
+<!--  if (listaMotivos.includes(reason.value)) {-->
+<!--    console.log(`Motivo selecionado: ${motivo}`);-->
+
+
+<!--  } else {-->
+<!--    console.log("Outros");-->
+<!--    rad.value=="Outros"-->
+<!--  }-->
+
+
+}
+
+ criarBotoesRadio();
+ verificarMotivo(reason, lista)
+});
+</script>
+</main>
+
+</body>
+</html>

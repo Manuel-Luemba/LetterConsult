@@ -1,0 +1,136 @@
+{% extends 'form.html' %}
+{% load static %}
+{% block head_form %}
+
+<link href="{% static 'lib/jquery-ui-1.12.1/jquery-ui.min.css' %}" rel="stylesheet"/>
+<script src="{% static 'lib/jquery-ui-1.12.1/jquery-ui.min.js' %}"></script>
+
+<link href="{% static 'lib/select2-4.0.13/css/select2.min.css' %}" rel="stylesheet"/>
+<link href="{% static 'lib/select2-4.0.13/css/select2-bootstrap4.min.css' %}" rel="stylesheet"/>
+<script src="{% static 'lib/select2-4.0.13/js/select2.min.js' %}"></script>
+<script src="{% static 'lib/select2-4.0.13/js/i18n/es.js' %}"></script>
+
+<script src="{% static 'lib/moment-2.25.3/moment-with-locales.js' %}"></script>
+<script src="{% static 'lib/tempusdominus-bootstrap-4/tempusdominus-bootstrap-4.min.js' %}"></script>
+<link href="{% static 'lib/tempusdominus-bootstrap-4/tempusdominus-bootstrap-4.min.css' %}" rel="stylesheet"/>
+
+<link href="{% static 'lib/bootstrap-touchspin-4.3.0/jquery.bootstrap-touchspin.css' %}" rel="stylesheet"/>
+<script src="{% static 'lib/bootstrap-touchspin-4.3.0/jquery.bootstrap-touchspin.js' %}"></script>
+
+<link href="{% static 'lib/select2-4.0.13/css/select2.min.css' %}" rel="stylesheet"/>
+<link href="{% static 'lib/select2-4.0.13/css/select2-bootstrap4.min.css' %}" rel="stylesheet"/>
+<script src="{% static 'lib/select2-4.0.13/js/select2.min.js' %}"></script>
+<script src="{% static 'lib/select2-4.0.13/js/i18n/es.js' %}"></script>
+<script src="{% static 'letter/js/form.js' %}"></script>
+<link href="{% static 'letter/css/style.css' %}" rel="stylesheet"/>
+{% endblock %}
+
+{% block javascript %}
+<script type="application/javascript">
+    $(document).ready(function () {
+        function errorValidation(input, message) {
+            const formControl = input.parentElement;
+            console.log(formControl, 'form g')
+            const small = formControl.querySelector('small')
+            console.log(small)
+            small.innerText = message
+            formControl.className = 'form-group error'
+
+        }
+
+        function successValidation(input) {
+            const formControl = input.parentElement;
+            formControl.className = 'form-group success'
+        }
+
+        const assunto = document.getElementById('id_reason');
+        const data = document.getElementById('date_sent');
+
+
+        function checkInputs() {
+            const assuntoValue = document.getElementById('id_reason').value.trim();
+            const dataValue = document.getElementById('date_sent').value.trim();
+
+
+            console.log(dataValue, 'data')
+            console.log(assuntoValue, 'assunto')
+
+            let allgood = true;
+
+            if (assuntoValue === "") {
+                errorValidation(assunto, 'Preencha esse campo')
+                allgood = false;
+            } else {
+                successValidation(assunto)
+                allgood = true;
+            }
+
+            if (dataValue === "") {
+                errorValidation(data, 'Preencha esse campo')
+                allgood = false;
+            } else {
+                successValidation(data)
+                allgood = true;
+            }
+            // if (textoSemTags === '') {
+            //     alert("O campo de conteúdo não pode estar vazio.");
+            //     errorValidation(corpo, 'Preencha esse campo')
+            //     allgood = false;
+            // } else {
+            //     //successValidation(corpo)
+            //     allgood = true;
+            // }
+            return allgood
+        }
+
+        var codigo_id = "{{ codigo_id|escapejs }}";
+        var user_id = "{{ user_id|escapejs }}";
+        var codigo = "{{ codigo|escapejs }}";
+        var user = "{{ user|escapejs }}";
+
+
+        // reference.selectedIndex = codigo_id;
+        // reference.selected = codigo_id;
+        // document.getElementById('reference_code').selected = codigo;
+        // document.getElementById('reference_code').value = "";
+        // var status = document.getElementById('status');
+        // console.log(codigo_id, 'reference codigo')
+        // console.log(document.getElementById('reference_code').selected, 'podes codigo selecionado')
+        // document.getElementById('reference_code').selected =reference.value;
+
+
+        $("#letter-form").on('submit', function (e) {
+            e.preventDefault();
+            var parameters = new FormData(this);
+            console.log(parameters)
+            console.log('xxxx')
+            if (checkInputs()) {
+                $.ajax({
+                    delay: 250,
+                    url: "{% url 'erp:letter_create' %}",  // Substitua pela URL correta
+                    method: "POST",
+                    data: $(this).serialize(),
+                    dataType: "json",
+                    success: function (response) {
+
+                        console.log(response);
+                    }
+                });
+            }
+        });
+
+        // $('#date_sent').datetimepicker({
+        //     useCurrent: false,
+        //     format: 'YYYY-MM-DD',
+        //     //date: inicio.value,
+        //     locale: 'pt',
+        //     showButtonPanel: true,
+        //     showTodayButton: true,
+        //     keepOn: true,
+        //
+        // });
+
+    });
+
+</script>
+{% endblock %}

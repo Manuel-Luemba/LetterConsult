@@ -1,0 +1,276 @@
+{% block content %}
+{% load static %}
+
+<head>
+    <style>
+        /* Define a página no formato A4 */
+        .a4-page {
+            width: 21cm; /* Largura A4 */
+            height: 29.7cm; /* Altura A4 */
+            margin: 2cm auto; /* Margens automáticas para centralizar a página */
+            padding: 2cm;
+            background: white;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); /* Sombra leve para parecer papel */
+            border: 1px solid #ccc; /* Borda leve ao redor */
+            font-family: 'Arial', sans-serif; /* Fonte padrão */
+            page-break-after: always; /* Quebra a página depois */
+            overflow: hidden; /* Esconde o conteúdo que excede o tamanho da página */
+        }
+ /* Estilo do botão */
+    .btn-back {
+      position: absolute;
+      bottom: 20px; /* Distância do fundo da página */
+      left: 50%;
+      transform: translateX(-50%); /* Centraliza o botão horizontalmente */
+      padding: 10px 20px;
+      background-color: #007bff; /* Cor de fundo do botão */
+      color: white; /* Cor do texto */
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+        /* Limitar o conteúdo dentro da página A4 */
+        .a4-content {
+            max-height: 100%;
+            overflow: auto;
+        }
+
+        @media print {
+            .a4-page {
+                page-break-after: always;
+            }
+            .btn-back {
+        display: none; /* Oculta o botão ao imprimir */
+      }
+        }
+    </style>
+    <style>
+
+
+        @page {
+            size: A4;
+            margin-left: 2cm;
+            margin-top: 2cm;
+            margin-right: 1cm;
+            margin-bottom: 1cm;
+
+            @bottom-center {
+                content: element(footer); /* Rodapé em todas as páginas */
+            }
+            @top-left {
+                content: element(header);
+            }
+            /*@bottom-center {*/
+            /*    content: element(footer);*/
+            /*}*/
+            @bottom-center {
+                content: counter(page); /* Numeração de página */
+            }
+        }
+
+        body {
+            font-family: 'Gill Sans MT', 'Gill Sans', Calibri, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        <!-- /* Estilo do cabeçalho */
+        #header {
+            position: running(header);
+            width: 5.68cm;
+            height: 0.8cm; /* Altura do cabeçalho */
+            display: flex;
+            /*align-items: center;*/
+            margin-bottom: 30px; /* Espaço abaixo do cabeçalho */
+            margin-top: 0.4cm;
+        }
+
+        /* Controle preciso das imagens do cabeçalho */
+        .header-image {
+            height: 0.8cm; /* Altura exata para evitar distorção */
+            width: auto;
+        }
+
+
+        header {
+            margin-bottom: 20px;
+            padding-left: 20px; /* Ajuste conforme necessário */
+        }
+
+        .header-line {
+            text-align: left;
+            margin: 0;
+            padding-left: 300px; /* Ajuste conforme necessário */
+        }
+
+        .negrito {
+            font-weight: bold;
+        }
+
+        .header-line {
+            text-align: left;
+            margin: 0;
+            padding-left: 300px; /* Ajuste conforme necessário */
+        }
+
+        .carta {
+            text-align: justify;
+            white-space: pre-wrap; /* Preserva espaços e quebras de linha */
+
+        }
+
+        .tabela {
+            width: 100%;
+            margin: auto;
+            text-align: center;
+
+        }
+
+        .tabela th, .tabela td {
+            text-align: center; /* Centraliza o texto */
+        }
+
+        /* manuel */
+        .left {
+            text-align: left;
+        }
+
+        .right {
+            text-align: right;
+        }
+
+
+        <!-- /* Estilo do rodapé */
+        #footer {
+            position: running(footer);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-family: 'Gill Sans MT', sans-serif;
+            font-size: 8px;
+            margin-bottom: 0;
+            width: 100%;
+            bottom: 0;
+        }
+
+
+        /* Estilo para o texto do rodapé */
+        .footer-text-left p {
+            color: black; /* Cor padrão para o texto */
+            margin: 0; /* Remove margens para uniformidade */
+            padding: 0;
+        }
+
+        .footer-text {
+            font-weight: bold;
+            margin: 0; /* Remove margens para uniformidade */
+            padding: 0;
+
+        }
+
+        /* Estilo específico para o e-mail */
+        .footer-text-left .email {
+            color: #0563c1; /* Substitua "red" pela cor desejada */
+
+        }
+
+
+        /* Estilo específico para o texto abaixo da imagem */
+        .footer-image-right .footer-text {
+            color: #188d8d; /* Substitua "blue" pela cor desejada */
+            font-family: 'Bradley Hand ITC'; /* Fonte do texto abaixo da imagem */
+            font-size: 9px; /* Tamanho da fonte */
+            font-weight: bold;
+
+        }
+
+        .footer-image-right img {
+            max-width: 100px; /* Tamanho da imagem */
+
+        }
+
+        /* Adiciona numeração de página */
+        .page-number::after {
+            content: "Page " counter(page) " of " counter(pages);
+            font-family: 'Gill Sans MT', sans-serif;
+            font-size: 8px;
+        }
+
+        #carta table {
+        width: 100%; /* Ajusta a tabela para ocupar a largura total do div */
+        border-collapse: collapse; /* Remove os espaços entre bordas */
+    }
+
+    #carta table, #carta th, #carta td {
+        border: 1px solid #333; /* Define bordas escuras para células e tabelas */
+    }
+
+    #carta th, #carta td {
+        padding: 8px; /* Adiciona preenchimento nas células */
+        text-align: left; /* Alinha o texto à esquerda, você pode ajustar conforme necessário */
+    }
+  .carta p {
+    margin: 0; /* Remove margens para reduzir o espaço entre linhas */
+    padding: 0;
+}
+    </style>
+</head>
+<body>
+<div class="a4-page">
+    <div class="a4-content">
+        <!-- Cabeçalho que se repetirá em todas as páginas -->
+        <div id="header">
+            <img src="{{header}}" alt="Cabeçalho" class="header-image">
+        </div>
+        <header>
+            <p class="header-line negrito">AO/À</p>
+            <p class="header-line negrito">{{carta.entity |upper}}</p>
+            <!--        <p class="header-line negrito">XXXXXXXXXXXXXXXX</p>-->
+            <p class="header-line negrito">EXMO (A). {{carta.job |upper}}</p>
+            <p class="header-line negrito">DR. {{carta.recipient |upper}}</p>
+            <p class="header-line negrito">{{carta.city |upper}}</p>
+        </header>
+
+
+        <br>
+        <br>
+        <br>
+        <br>
+
+        <table class="tabela">
+            <thead>
+            <th>S/Referência</th>
+            <th>S/Data</th>
+            <th>N/Referência</th>
+            <th>Data de Expedição</th>
+            </thead>
+            <tbody>
+            <td></td>
+            <td></td>
+            <td>{{carta.reference_code |upper}}</td>
+            <td>{{carta.date_sent |date:"d/m/Y"}}</td>
+            </tbody>
+        </table>
+        <div class="carta" id="carta">
+            <p>{{carta.content }}</p>
+        </div>
+        <!-- Rodapé que se repetirá em todas as páginas -->
+        <!--<div id="footer">-->
+        <!--    <div class="footer-text-left left">-->
+        <!--        <p>ENGCONSULT – ENGINEERING, CONSULTING & DEVELOPMENT | NIF: 5417126500</p>-->
+        <!--        <p>Av. Rei Katyavala, Edifício Avenca Plaza nº 43/45, 7ªAndar – Maculusso - Luanda</p>-->
+        <!--        <p>www.engconsult-ao.com | <span class="email">geral@engconsult-ao.com</span></p>-->
+        <!--        <p>222 001 726 / (+244) 949 699 516</p>-->
+        <!--        <p>Mod. 210.01.01_Rev01</p>-->
+        <!--    </div>-->
+        <!--    <div class="footer-image-right right">-->
+        <!--        <img src="{{footer}}" alt="Logo">-->
+        <!--        <p class="footer-text"> Juntos Caminhamos, Rumo à Excelência!</p>-->
+        <!--    </div>-->
+    </div>
+    <a style="float: right; " href="{{ list_url }}" class="btn-back btn btn-secondary mt-4">Voltar para a lista</a>
+</div>
+</body>
+carta
+
+{% endblock %}

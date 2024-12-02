@@ -1,0 +1,110 @@
+{% extends 'layout.html' %}
+{% load widget_tweaks %}
+
+
+{% block content %}
+<form action="." method="post">
+    <div class="card card-default">
+        <div class="card-header">
+            <h3 class="card-title">
+                <i class="fas fa-trash"></i>
+                {{ title }}
+            </h3>
+        </div>
+        <div class="card-body">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="{{ action }}">
+            {% if form.errors %}
+
+
+                <div class="alert alert-danger alert-dismissible">
+                <button type="button" class="close" data-dismiss="alert" aria-hidden="true">×</button>
+                <h5><i class="icon fas fa-ban"></i> Erro ao guardar o registo!</h5>
+                <ul>
+                    {% for field in form %}
+                    {% for error in field.errors %}
+                    <li>
+                        {{ error }}
+                    </li>
+                    {% endfor %}
+
+                    {% endfor %}
+                </ul>
+                {{ form.errors.message }}
+            </div>
+
+            {% endif %}
+
+
+            <div class="alert alert-danger alert-dismissible">
+
+                <h5><i class="icon fas fa-ban"></i> Aviso!</h5>
+                Deseja Realmente Eliminar o {{entity}} nº {{object.id}}
+            </div>
+
+
+        </div>
+        <div class="card-footer">
+            <button type="submit" class="btn btn-info btn-flat">
+                <i class="fas fa-trash-alt"></i> Sim, aceitar
+            </button>
+
+            <a href="{{list_url}}" class="btn btn-danger btn-flat">
+                <i class="fas fa-times"></i> Cancelar
+            </a>
+        </div>
+    </div>
+</form>
+
+  <script type="application/javascript">
+/*
+        $('form').on('submit', function (e) {
+            e.preventDefault();
+            var param = $(this).serializeArray();
+            $.ajax({
+                url: window.location.pathname,
+                type: 'POST',
+                data: param,
+                datatype: 'json'
+            })
+                .done(
+                    function (data) {
+                        if (!data.hasOwnProperty('error')) {
+                            location.href = '{{ list_url }}'
+                            return false;
+                        }
+
+                        message_error(data.error);
+                    }).fail(
+                function (jqXHR, textStatus, errorThrown) {
+                    alert(textStatus + ':' + errorThrown)
+                }
+            )
+                .always(
+                    function () {
+
+                    })
+        });
+*/
+
+       $('form').on('submit', function (e) {
+            e.preventDefault();
+            var parameters = new FormData(this);
+            submit_with_ajax(window.location.pathname, 'Aviso', 'Deseja eliminar este registro?', parameters, function () {
+                Swal.fire({
+                    title: 'Aviso!',
+                    text: 'Registro Eliminado Correctamente',
+                    icon: 'success',
+                    timer: 2000,
+                    onClose: (() => {
+                        location.href = '{{ list_url }}';
+                    })
+                }).then((result) => {
+                    location.href = '{{ list_url }}';
+                });
+            });
+        });
+    </script>
+{% endblock %}
+
+

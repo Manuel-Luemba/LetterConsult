@@ -1,0 +1,201 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        @page {
+            size: A4;
+            margin-left: 2cm;
+            margin-top: 2cm;
+            margin-right: 1cm;
+            margin-bottom: 1cm;
+            @top-left {
+                content: element(header);
+            }
+            @bottom-center {
+                content: element(footer);
+            }
+        }
+
+        /* Estilo do cabeçalho */
+        #header {
+            position: running(header);
+            width: 5.68cm;
+            height: 0.8cm; /* Altura do cabeçalho */
+            display: flex;
+            /*align-items: center;*/
+            margin-bottom: 30px; /* Espaço abaixo do cabeçalho */
+            margin-top: 0.4cm;
+        }
+
+
+        body {
+            font-family: 'Gill Sans MT', 'Gill Sans', Calibri, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        .negrito {
+            font-weight: bold;
+        }
+
+
+        .header-line {
+            text-align: left;
+            margin: 0;
+            padding-left: 350px; /* Ajuste conforme necessário */
+        }
+
+        /* Estilo do cabeçalho */
+
+
+        /* Controle preciso das imagens do cabeçalho */
+        .header-image {
+            height: 0.8cm; /* Altura exata para evitar distorção */
+            width: auto;
+        }
+
+        .carta {
+            text-align: justify;
+            white-space: pre-wrap; /* Preserva espaços e quebras de linha */
+        }
+
+
+    </style>
+
+    <style>
+        @page {
+    size: A4;
+    margin-left: 2cm;
+    margin-top: 2cm;
+    margin-right: 1cm;
+    margin-bottom: 1cm;
+
+    @bottom-center {
+        content: element(footer);
+    }
+}
+
+/* Estilo do rodapé para ocupar toda a largura da página */
+#footer {
+    position: running(footer);
+    width: 100%; /* O rodapé ocupará 100% da largura */
+    display: flex;
+    justify-content: space-between; /* Alinha o texto à esquerda e a imagem à direita */
+    align-items: center;
+    font-family: 'Gill Sans MT', sans-serif;
+    font-size: 8px;
+    border-top: 1px solid #000;
+    padding-top: 20px;
+    padding-left: 2cm;  /* Margem esquerda do rodapé */
+    padding-right: 1cm; /* Margem direita do rodapé */
+}
+
+/* Estilo do texto no rodapé */
+.footer-text-left {
+    width: 70%; /* Define a largura do bloco de texto */
+    text-align: left;
+}
+
+.footer-text-left .email {
+    color: teal; /* Cor diferente para o e-mail */
+}
+
+.footer-image-right {
+    width: auto;
+    height: 70px; /* Ajuste a altura da imagem conforme necessário */
+}
+
+/* Estilo do texto abaixo da imagem */
+.footer-image-right .footer-text {
+    color: blue;
+    font-family: 'Bradley Hand', cursive;
+    font-size: 9px;
+    margin-top: 5px;
+}
+
+    </style>
+</head>
+<body>
+<!-- Cabeçalho que se repetirá em todas as páginas -->
+<div id="header">
+    <img src="{{header}}" alt="Cabeçalho" class="header-image">
+</div>
+<header>
+    <p class="header-line negrito">AO</p>
+    <p class="header-line negrito">XXXXXXX</p>
+    <p class="header-line negrito">XXXXXXXXXXXXXXXX</p>
+    <p class="header-line negrito">ATT. EXMO. SENHOR XXXXXXXX</p>
+    <p class="header-line negrito">DR. XXXXXxxxxx xxxxxxxxxxxxxx</p>
+    <p class="header-line negrito">LUANDA</p>
+</header>
+<div class="carta">
+    <p>Querida Ana,
+        Espero que esta carta te encontre bem. Estou escrevendo para te contar sobre as últimas novidades aqui em casa.
+        A semana passada foi bastante agitada, pois tivemos a visita dos nossos primos de São Paulo. Foi ótimo revê-los
+        depois de tanto tempo! Passamos dias maravilhosos juntos, relembrando histórias antigas e criando novas
+        memórias.
+
+        Além disso, comecei um novo curso de fotografia. Sempre tive interesse em capturar momentos especiais e agora
+        estou aprendendo técnicas que nunca imaginei. Estou muito animado com essa nova jornada e mal posso esperar para
+        te mostrar algumas das minhas fotos.
+
+        E você, como tem passado? Espero que esteja tudo bem por aí. Estou ansioso para ouvir suas novidades também.
+
+        Espero que esta carta te encontre bem. Estou escrevendo para te contar sobre as últimas novidades aqui em casa.
+        A semana passada foi bastante agitada, pois tivemos a visita dos nossos primos de São Paulo. Foi ótimo revê-los
+        depois de tanto tempo! Passamos dias maravilhosos juntos, relembrando histórias antigas e criando novas
+        memórias.
+
+        Além disso, comecei um novo curso de fotografia. Sempre tive interesse em capturar momentos especiais e agora
+        estou aprendendo técnicas que nunca imaginei. Estou muito animado com essa nova jornada e mal posso esperar para
+        te mostrar algumas das minhas fotos.
+
+        E você, como tem passado? Espero que esteja tudo bem por aí. Estou ansioso para ouvir suas novidades também.
+
+        Espero que esta carta te encontre bem. Estou escrevendo para te contar sobre as últimas novidades aqui em casa.
+        A semana passada foi bastante agitada, pois tivemos a visita dos nossos primos de São Paulo. Foi ótimo revê-los
+        depois de tanto tempo! Passamos dias maravilhosos juntos, relembrando histórias antigas e criando novas
+        memórias.
+
+        Além disso, comecei um novo curso de fotografia. Sempre tive interesse em capturar momentos especiais e agora
+        estou aprendendo técnicas que nunca imaginei. Estou muito animado com essa nova jornada e mal posso esperar para
+        te mostrar algumas das minhas fotos.
+
+        E você, como tem passado? Espero que esteja tudo bem por aí. Estou ansioso para ouvir suas novidades também.
+
+        Espero que esta carta te encontre bem. Estou escrevendo para te contar sobre as últimas novidades aqui em casa.
+        A semana passada foi bastante agitada, pois tivemos a visita dos nossos primos de São Paulo. Foi ótimo revê-los
+        depois de tanto tempo! Passamos dias maravilhosos juntos, relembrando histórias antigas e criando novas
+        memórias.
+
+        Além disso, comecei um novo curso de fotografia. Sempre tive interesse em capturar momentos especiais e agora
+        estou aprendendo técnicas que nunca imaginei. Estou muito animado com essa nova jornada e mal posso esperar para
+        te mostrar algumas das minhas fotos.
+
+        E você, como tem passado? Espero que esteja tudo bem por aí. Estou ansioso para ouvir suas novidades também.
+        Com carinho,
+
+        João
+    </p>
+    <p>Atenciosamente,</p>
+    <p>[Seu Nome]</p>
+</div>
+<!-- Rodapé que se repetirá em todas as páginas -->
+<div id="footer">
+    <div class="footer-text-left">
+        <p>ENGCONSULT – ENGINEERING, CONSULTING & DEVELOPMENT | NIF: 5417126500</p>
+        <p>Av. Rei Katyavala, Edifício Avenca Plaza nº 43/45, 7ªAndar – Maculusso - Luanda</p>
+        <p>www.engconsult-ao.com | <span class="email">geral@engconsult-ao.com</span></p>
+        <p>222 001 726 / (+244) 949 699 516</p>
+        <p>Mod. 210.01.01_Rev01</p>
+    </div>
+    <div class="footer-image-right">
+        <img src="{{footer}}" alt="Logo">
+        <p class="footer-text"> Juntos Caminhamos, Rumo à Excelência!</p>
+    </div>
+</div>
+
+</body>
+</html>
+

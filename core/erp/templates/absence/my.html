@@ -1,0 +1,36 @@
+{% extends 'list.html' %}
+{% load static %}
+{% block  head_list %}
+
+<script src="{% static 'absense/js/list.js' %}"></script>
+{% endblock %}
+
+{% block columns %}
+<tr>
+    <th scope="col" style="width: 5%">#</th>
+    <th scope="col" style="width: 20%">Tipo</th>
+    <th scope="col" style="width: 20%">Motivo</th>
+    <th scope="col" style="width: 20%">Colaborador</th>
+    <th scope="col" style="width: 20%">Inicio</th>
+    <th scope="col" style="width: 10%">Fim</th>
+    <th scope="col" style="width: 10%">Dias</th>
+    <th scope="col" style="width: 10%">Estado</th>
+    <th scope="col" style="width: 10%">Opções</th>
+    <input type="text"  visible="false" value="{{manager}}" id="manager" readonly="true" style="visibility: hidden; display:none">
+</tr>
+{% endblock %}
+
+{% block rows %}
+
+{% endblock %}
+
+{% block js %}
+<script src="{% static 'absense/js/list.js' %}">
+    var my_chart = {{ manager }};
+
+    console.log(my_chart)
+    mi_list({{manager}})
+</script>
+{% endblock %}
+
+
