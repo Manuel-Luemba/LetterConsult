@@ -1606,7 +1606,7 @@ proto._getMeasurement = function( measurement, size ) {
 
 /**
  * layout a collection of item elements
- * @api public
+ * @timesheet public
  */
 proto.layoutItems = function( items, isInstant ) {
   items = this._getItemsForLayout( items );

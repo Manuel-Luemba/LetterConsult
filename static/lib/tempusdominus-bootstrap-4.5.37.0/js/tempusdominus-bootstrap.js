@@ -54,7 +54,7 @@ var DateTimePicker = function ($, moment) {
       NAME = 'datetimepicker',
       DATA_KEY = "" + NAME,
       EVENT_KEY = "." + DATA_KEY,
-      DATA_API_KEY = '.data-api',
+      DATA_API_KEY = '.data-timesheet',
       Selector = {
     DATA_TOGGLE: "[data-toggle=\"" + DATA_KEY + "\"]"
   },
@@ -767,7 +767,7 @@ var DateTimePicker = function ($, moment) {
       }
 
       $.each(this._options, function (key) {
-        var attributeName = "date" + key.charAt(0).toUpperCase() + key.slice(1); //todo data api key
+        var attributeName = "date" + key.charAt(0).toUpperCase() + key.slice(1); //todo data timesheet key
 
         if (eData[attributeName] !== undefined) {
           dataOptions[key] = eData[attributeName];

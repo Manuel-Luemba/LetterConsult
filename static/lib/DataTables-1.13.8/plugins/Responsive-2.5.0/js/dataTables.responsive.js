@@ -1332,7 +1332,7 @@ Responsive.renderer = {
 							$('<span class="dtr-data"/>').append(
 								that._childNodes(api, col.rowIndex, col.columnIndex)
 							)
-						) // api.cell( col.rowIndex, col.columnIndex ).node().childNodes ) )
+						) // timesheet.cell( col.rowIndex, col.columnIndex ).node().childNodes ) )
 						.appendTo(ul);
 
 					found = true;

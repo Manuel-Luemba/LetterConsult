@@ -1,0 +1,206 @@
+from typing import List
+from django.core.paginator import Paginator
+from django.shortcuts import get_object_or_404
+from ninja.errors import HttpError, logger
+from rest_framework.decorators import permission_classes, authentication_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework_simplejwt.authentication import JWTAuthentication
+
+from .models import Department
+
+import pandas as pd
+############################### Department ########################################################
+from ninja import Router, UploadedFile, File
+
+from ..activity.api import REQUIRED_COLUMNS
+from ..activity.models import Activity
+from ..activity.schemas import ActivityOut, PaginatedActivityResponse, ActivityIn
+from ..project.schemas_department import PaginatedDepartmentResponse, DepartmentIn
+from ..timesheet.schemas import DepartmentOut
+
+router = Router(tags=["Erp"])
+
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+@router.post("")
+def create_activity(request, payload: ActivityIn):
+    activity = Activity.objects.create(
+        name=payload.name,
+        description=payload.description,
+        department_id=payload.department
+    )
+    return {"id": activity.id}
+
+
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+@router.get("", response=List[DepartmentOut])
+def get_departments(request):
+    qs = Department.objects.all()
+    return qs
+
+
+
+
+
+
+
+
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+@router.get("/list", response=PaginatedDepartmentResponse)
+def get_departments(request, page: int = 1, page_size: int = 15):
+    """
+    Endpoint com paginação manual para timesheets do usuário
+    """
+    try:
+        queryset = (Activity.objects.select_related("department").all().order_by('-id'))
+
+        # ✅ PAGINAÇÃO MANUAL
+        paginator = Paginator(queryset, page_size)
+        current_page = paginator.get_page(page)
+
+        result = []
+        for activity in current_page:
+            data = ActivityOut.from_orm(activity)
+            result.append(data)
+
+        # ✅ RETORNO COM METADADOS COMPLETOS
+        return {
+            'count': paginator.count,
+            'total_pages': paginator.num_pages,
+            'current_page': current_page.number,
+            'page_size': page_size,
+            'has_next': current_page.has_next(),
+            'has_prev': current_page.has_previous(),
+            'items': result
+        }
+
+    except Exception as e:
+        logger.error(f"Erro no endpoint activities: {str(e)}")
+        raise HttpError(500, "Erro interno do servidor")
+
+
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+@router.get("/{department_id}", response=ActivityOut)
+def get_department_by_id(request, department_id: int):
+    department = get_object_or_404(Activity, id=department_id)
+    return department
+
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+@router.post("/import-excel")
+def import_projects_excel(request, file: UploadedFile = File(...)):
+    print("start import_activities_excel")
+
+    try:
+        df = pd.read_excel(file.file)
+    except Exception as e:
+        return {"error": f"Erro ao ler o Excel: {str(e)}"}
+
+    # 1. Validar se todas as colunas obrigatórias existem
+    missing = [col for col in REQUIRED_COLUMNS if col not in df.columns]
+    if missing:
+        return {"error": f"Colunas obrigatórias ausentes: {', '.join(missing)}"}
+
+    created = []
+    errors = []
+
+    # 2. Iterar pelas linhas e validar valores
+    for idx, row in df.iterrows():
+        try:
+            if pd.isna(row["name"]) or pd.isna(row["cod_contractor"]):
+                errors.append(f"Linha {idx + 2}: faltam dados obrigatórios")
+                continue
+
+            # ✅ CORREÇÃO: Converter "SIM"/"NÃO" para True/False
+            is_active_value = True  # padrão
+            if "is_active" in df.columns and not pd.isna(row.get("is_active")):
+                is_active_str = str(row.get("is_active")).upper().strip()
+                if is_active_str in ["SIM", "YES", "TRUE", "1", "S", "Y"]:
+                    is_active_value = True
+                elif is_active_str in ["NÃO", "NAO", "NO", "FALSE", "0", "N"]:
+                    is_active_value = False
+                else:
+                    errors.append(
+                        f"Linha {idx + 2}: valor inválido para is_active: '{row.get('is_active')}'. Use SIM ou NÃO")
+                    continue
+
+            activity = Activity.objects.create(
+                name=row["name"],
+                description=row.get("description", ""),
+                department=row["department"],
+                is_active=is_active_value,  # ✅ Agora é True/False
+            )
+            created.append(activity.id)
+            print(f"✅ Projeto criado: {activity.name} (ativo: {activity.is_active})")
+
+        except Exception as e:
+            errors.append(f"Linha {idx + 2}: {str(e)}")
+            print(f"❌ Erro na linha {idx + 2}: {str(e)}")
+            continue
+
+    return {
+        "imported_ids": created,
+        "errors": errors,
+        "total_imported": len(created),
+        "total_errors": len(errors)
+    }
+
+
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+@router.put("/{department_id}")
+def update_department(request, department_id: int, payload: DepartmentIn):
+    department = get_object_or_404(Department, id=department_id)
+    data = payload.dict()
+
+    # trata o campo ForeignKey separadamente
+    if "manager" in data:
+        department.manager = data.pop("manager")
+
+    if "manager" in data:
+        department.manager = data.pop("manager")
+
+    if "manager" in data:
+        department.manager = data.pop("manager")
+
+    # atualiza os demais campos
+    for attr, value in data.items():
+        setattr(department, attr, value)
+
+    department.save()
+    return {"success": True}
+
+
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+@router.patch("/activities/{activity_id}")
+def delete_activity(request, activity_id: int):
+    activity = get_object_or_404(Activity, id=activity_id)
+    activity.active = False
+    activity.save()
+    return {"success": True}
+
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+@router.patch("/{activity_id}/deactivate")
+def deactivate_activity(request, activity_id: int):
+    print(activity_id, 'deactivate_activity')
+    activity = get_object_or_404(Activity, id=activity_id)
+    print(activity, 'activity')
+    activity.is_active = False
+    activity.save()
+    return {"success": True}
+
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+@router.patch("/{activity_id}/activate")
+def activate_activity(request, activity_id: int):
+    print(activity_id, 'activate_activity')
+    activity = get_object_or_404(Activity, id=activity_id)
+    print(activity, 'activity')
+    activity.is_active = True
+    activity.save()
+    return {"success": True}

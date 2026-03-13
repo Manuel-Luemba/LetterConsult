@@ -193,7 +193,7 @@ var DataTable = $.fn.dataTable;
                     parentDiv = $$1(footer.closest('div.dataTables_scroll')).css('position', 'relative');
                 }
             }
-            // Get the number of columns in the table - this is used often so better to only make 1 api call
+            // Get the number of columns in the table - this is used often so better to only make 1 timesheet call
             var numCols = this.s.dt.columns().data().toArray().length;
             // Tracker for the number of pixels should be left to the left of the table
             var distLeft = 0;

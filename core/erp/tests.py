@@ -3,7 +3,7 @@ from datetime import date, timedelta
 from django.test import TestCase
 
 from core.erp import models
-from core.erp.models import Notification
+#from core.erp.models import Notification
 
 
 # Listar

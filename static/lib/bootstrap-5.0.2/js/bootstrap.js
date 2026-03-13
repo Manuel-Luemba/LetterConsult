@@ -826,7 +826,7 @@
   const NAME$c = 'alert';
   const DATA_KEY$b = 'bs.alert';
   const EVENT_KEY$b = `.${DATA_KEY$b}`;
-  const DATA_API_KEY$8 = '.data-api';
+  const DATA_API_KEY$8 = '.data-timesheet';
   const SELECTOR_DISMISS = '[data-bs-dismiss="alert"]';
   const EVENT_CLOSE = `close${EVENT_KEY$b}`;
   const EVENT_CLOSED = `closed${EVENT_KEY$b}`;
@@ -934,7 +934,7 @@
   const NAME$b = 'button';
   const DATA_KEY$a = 'bs.button';
   const EVENT_KEY$a = `.${DATA_KEY$a}`;
-  const DATA_API_KEY$7 = '.data-api';
+  const DATA_API_KEY$7 = '.data-timesheet';
   const CLASS_NAME_ACTIVE$3 = 'active';
   const SELECTOR_DATA_TOGGLE$5 = '[data-bs-toggle="button"]';
   const EVENT_CLICK_DATA_API$6 = `click${EVENT_KEY$a}${DATA_API_KEY$7}`;
@@ -1079,7 +1079,7 @@
   const NAME$a = 'carousel';
   const DATA_KEY$9 = 'bs.carousel';
   const EVENT_KEY$9 = `.${DATA_KEY$9}`;
-  const DATA_API_KEY$6 = '.data-api';
+  const DATA_API_KEY$6 = '.data-timesheet';
   const ARROW_LEFT_KEY = 'ArrowLeft';
   const ARROW_RIGHT_KEY = 'ArrowRight';
   const TOUCHEVENT_COMPAT_WAIT = 500; // Time for mouse compat events to fire after touch
@@ -1624,7 +1624,7 @@
   const NAME$9 = 'collapse';
   const DATA_KEY$8 = 'bs.collapse';
   const EVENT_KEY$8 = `.${DATA_KEY$8}`;
-  const DATA_API_KEY$5 = '.data-api';
+  const DATA_API_KEY$5 = '.data-timesheet';
   const Default$8 = {
     toggle: true,
     parent: ''
@@ -1979,7 +1979,7 @@
   const NAME$8 = 'dropdown';
   const DATA_KEY$7 = 'bs.dropdown';
   const EVENT_KEY$7 = `.${DATA_KEY$7}`;
-  const DATA_API_KEY$4 = '.data-api';
+  const DATA_API_KEY$4 = '.data-timesheet';
   const ESCAPE_KEY$2 = 'Escape';
   const SPACE_KEY = 'Space';
   const TAB_KEY = 'Tab';
@@ -2683,7 +2683,7 @@
   const NAME$6 = 'modal';
   const DATA_KEY$6 = 'bs.modal';
   const EVENT_KEY$6 = `.${DATA_KEY$6}`;
-  const DATA_API_KEY$3 = '.data-api';
+  const DATA_API_KEY$3 = '.data-timesheet';
   const ESCAPE_KEY$1 = 'Escape';
   const Default$5 = {
     backdrop: true,
@@ -3122,7 +3122,7 @@
   const NAME$5 = 'offcanvas';
   const DATA_KEY$5 = 'bs.offcanvas';
   const EVENT_KEY$5 = `.${DATA_KEY$5}`;
-  const DATA_API_KEY$2 = '.data-api';
+  const DATA_API_KEY$2 = '.data-timesheet';
   const EVENT_LOAD_DATA_API$1 = `load${EVENT_KEY$5}${DATA_API_KEY$2}`;
   const ESCAPE_KEY = 'Escape';
   const Default$4 = {
@@ -4330,7 +4330,7 @@
   const NAME$2 = 'scrollspy';
   const DATA_KEY$2 = 'bs.scrollspy';
   const EVENT_KEY$2 = `.${DATA_KEY$2}`;
-  const DATA_API_KEY$1 = '.data-api';
+  const DATA_API_KEY$1 = '.data-timesheet';
   const Default$1 = {
     offset: 10,
     method: 'auto',
@@ -4581,7 +4581,7 @@
   const NAME$1 = 'tab';
   const DATA_KEY$1 = 'bs.tab';
   const EVENT_KEY$1 = `.${DATA_KEY$1}`;
-  const DATA_API_KEY = '.data-api';
+  const DATA_API_KEY = '.data-timesheet';
   const EVENT_HIDE$1 = `hide${EVENT_KEY$1}`;
   const EVENT_HIDDEN$1 = `hidden${EVENT_KEY$1}`;
   const EVENT_SHOW$1 = `show${EVENT_KEY$1}`;

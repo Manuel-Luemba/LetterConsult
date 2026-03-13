@@ -230,7 +230,7 @@
     var VERSION = '4.1.1';
     var DATA_KEY = 'bs.alert';
     var EVENT_KEY = "." + DATA_KEY;
-    var DATA_API_KEY = '.data-api';
+    var DATA_API_KEY = '.data-timesheet';
     var JQUERY_NO_CONFLICT = $$$1.fn[NAME];
     var Selector = {
       DISMISS: '[data-dismiss="alert"]'
@@ -405,7 +405,7 @@
     var VERSION = '4.1.1';
     var DATA_KEY = 'bs.button';
     var EVENT_KEY = "." + DATA_KEY;
-    var DATA_API_KEY = '.data-api';
+    var DATA_API_KEY = '.data-timesheet';
     var JQUERY_NO_CONFLICT = $$$1.fn[NAME];
     var ClassName = {
       ACTIVE: 'active',
@@ -569,7 +569,7 @@
     var VERSION = '4.1.1';
     var DATA_KEY = 'bs.carousel';
     var EVENT_KEY = "." + DATA_KEY;
-    var DATA_API_KEY = '.data-api';
+    var DATA_API_KEY = '.data-timesheet';
     var JQUERY_NO_CONFLICT = $$$1.fn[NAME];
     var ARROW_LEFT_KEYCODE = 37; // KeyboardEvent.which value for left arrow key
 
@@ -1070,7 +1070,7 @@
     var VERSION = '4.1.1';
     var DATA_KEY = 'bs.collapse';
     var EVENT_KEY = "." + DATA_KEY;
-    var DATA_API_KEY = '.data-api';
+    var DATA_API_KEY = '.data-timesheet';
     var JQUERY_NO_CONFLICT = $$$1.fn[NAME];
     var Default = {
       toggle: true,
@@ -1430,7 +1430,7 @@
     var VERSION = '4.1.1';
     var DATA_KEY = 'bs.dropdown';
     var EVENT_KEY = "." + DATA_KEY;
-    var DATA_API_KEY = '.data-api';
+    var DATA_API_KEY = '.data-timesheet';
     var JQUERY_NO_CONFLICT = $$$1.fn[NAME];
     var ESCAPE_KEYCODE = 27; // KeyboardEvent.which value for Escape (Esc) key
 
@@ -1912,7 +1912,7 @@
     var VERSION = '4.1.1';
     var DATA_KEY = 'bs.modal';
     var EVENT_KEY = "." + DATA_KEY;
-    var DATA_API_KEY = '.data-api';
+    var DATA_API_KEY = '.data-timesheet';
     var JQUERY_NO_CONFLICT = $$$1.fn[NAME];
     var ESCAPE_KEYCODE = 27; // KeyboardEvent.which value for Escape (Esc) key
 
@@ -3354,7 +3354,7 @@
     var VERSION = '4.1.1';
     var DATA_KEY = 'bs.scrollspy';
     var EVENT_KEY = "." + DATA_KEY;
-    var DATA_API_KEY = '.data-api';
+    var DATA_API_KEY = '.data-timesheet';
     var JQUERY_NO_CONFLICT = $$$1.fn[NAME];
     var Default = {
       offset: 10,
@@ -3666,7 +3666,7 @@
     var VERSION = '4.1.1';
     var DATA_KEY = 'bs.tab';
     var EVENT_KEY = "." + DATA_KEY;
-    var DATA_API_KEY = '.data-api';
+    var DATA_API_KEY = '.data-timesheet';
     var JQUERY_NO_CONFLICT = $$$1.fn[NAME];
     var Event = {
       HIDE: "hide" + EVENT_KEY,
@@ -16718,7 +16718,7 @@ function nextTick(fn, arg1, arg2, arg3) {
 /* 33 */
 /***/ (function(module, exports, __webpack_require__) {
 
-/* eslint-disable node/no-deprecated-api */
+/* eslint-disable node/no-deprecated-timesheet */
 var buffer = __webpack_require__(1)
 var Buffer = buffer.Buffer
 
@@ -26310,7 +26310,7 @@ PdfPrinter.prototype.createPdfKitDocument = function (docDefinition, options) {
 function setMetadata(docDefinition, pdfKitDoc) {
 	// PDF standard has these properties reserved: Title, Author, Subject, Keywords,
 	// Creator, Producer, CreationDate, ModDate, Trapped.
-	// To keep the pdfmake api consistent, the info field are defined lowercase.
+	// To keep the pdfmake timesheet consistent, the info field are defined lowercase.
 	// Custom properties don't contain a space.
 	function standardizePropertyKey(key) {
 		var standardProperties = ['Title', 'Author', 'Subject', 'Keywords',
@@ -31065,7 +31065,7 @@ module.exports = deprecate;
  * @param {Function} fn - the function to deprecate
  * @param {String} msg - the string to print to the console when `fn` is invoked
  * @returns {Function} a new "deprecated" version of `fn`
- * @api public
+ * @timesheet public
  */
 
 function deprecate (fn, msg) {
@@ -31096,7 +31096,7 @@ function deprecate (fn, msg) {
  *
  * @param {String} name
  * @returns {Boolean}
- * @api private
+ * @timesheet private
  */
 
 function config (name) {
@@ -70425,11 +70425,11 @@ this.pdfMake = this.pdfMake || {}; this.pdfMake.vfs = {
 	 * top level object had. For example, these two calls are equivalent:
 	 *
 	 *     // Not chained
-	 *     api.row.add( {...} );
-	 *     api.draw();
+	 *     timesheet.row.add( {...} );
+	 *     timesheet.draw();
 	 *
 	 *     // Chained
-	 *     api.row.add( {...} ).draw();
+	 *     timesheet.row.add( {...} ).draw();
 	 *
 	 * @class DataTable.Api
 	 * @param {array|object|string|jQuery} context DataTable identifier. This is
@@ -70445,15 +70445,15 @@ this.pdfMake = this.pdfMake || {}; this.pdfMake.vfs = {
 	 *
 	 * @example
 	 *   // Direct initialisation during DataTables construction
-	 *   var api = $('#example').DataTable();
+	 *   var timesheet = $('#example').DataTable();
 	 *
 	 * @example
 	 *   // Initialisation using a DataTables jQuery object
-	 *   var api = $('#example').dataTable().api();
+	 *   var timesheet = $('#example').dataTable().timesheet();
 	 *
 	 * @example
 	 *   // Initialisation as a constructor
-	 *   var api = new $.fn.DataTable.Api( 'table.dataTable' );
+	 *   var timesheet = new $.fn.DataTable.Api( 'table.dataTable' );
 	 */
 	_Api = function ( context, data )
 	{
@@ -75487,7 +75487,7 @@ this.pdfMake = this.pdfMake || {}; this.pdfMake.vfs = {
 		/**
 		 * Search delay option. This will throttle full table searches that use the
 		 * DataTables provided search input element (it does not effect calls to
-		 * `dt-api search()`, providing a delay before the search is made.
+		 * `dt-timesheet search()`, providing a delay before the search is made.
 		 *  @type integer
 		 *  @default 0
 		 *
@@ -77749,7 +77749,7 @@ this.pdfMake = this.pdfMake || {}; this.pdfMake.vfs = {
 		 *    // Ordering using `input` node values
 		 *    $.fn.dataTable.ext.order['dom-text'] = function  ( settings, col )
 		 *    {
-		 *      return this.api().column( col, {order:'index'} ).nodes().map( function ( td, i ) {
+		 *      return this.timesheet().column( col, {order:'index'} ).nodes().map( function ( td, i ) {
 		 *        return $('input', td).val();
 		 *      } );
 		 *    }
@@ -80581,7 +80581,7 @@ $.extend( _dtButtons, {
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  * DataTables API
  *
- * For complete documentation, please refer to the docs/api directory or the
+ * For complete documentation, please refer to the docs/timesheet directory or the
  * DataTables site
  */
 

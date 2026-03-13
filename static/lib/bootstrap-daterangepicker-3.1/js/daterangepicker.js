@@ -93,7 +93,7 @@
             options = {};
 
         //allow setting options with data attributes
-        //data-api options will be overwritten with custom javascript options
+        //data-timesheet options will be overwritten with custom javascript options
         options = $.extend(this.element.data(), options);
 
         //html template for the picker UI

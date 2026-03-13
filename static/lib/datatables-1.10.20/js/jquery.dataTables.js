@@ -6852,11 +6852,11 @@
 	 * top level object had. For example, these two calls are equivalent:
 	 *
 	 *     // Not chained
-	 *     api.row.add( {...} );
-	 *     api.draw();
+	 *     timesheet.row.add( {...} );
+	 *     timesheet.draw();
 	 *
 	 *     // Chained
-	 *     api.row.add( {...} ).draw();
+	 *     timesheet.row.add( {...} ).draw();
 	 *
 	 * @class DataTable.Api
 	 * @param {array|object|string|jQuery} context DataTable identifier. This is
@@ -6872,15 +6872,15 @@
 	 *
 	 * @example
 	 *   // Direct initialisation during DataTables construction
-	 *   var api = $('#example').DataTable();
+	 *   var timesheet = $('#example').DataTable();
 	 *
 	 * @example
 	 *   // Initialisation using a DataTables jQuery object
-	 *   var api = $('#example').dataTable().api();
+	 *   var timesheet = $('#example').dataTable().timesheet();
 	 *
 	 * @example
 	 *   // Initialisation as a constructor
-	 *   var api = new $.fn.DataTable.Api( 'table.dataTable' );
+	 *   var timesheet = new $.fn.DataTable.Api( 'table.dataTable' );
 	 */
 	_Api = function ( context, data )
 	{
@@ -11914,7 +11914,7 @@
 		/**
 		 * Search delay option. This will throttle full table searches that use the
 		 * DataTables provided search input element (it does not effect calls to
-		 * `dt-api search()`, providing a delay before the search is made.
+		 * `dt-timesheet search()`, providing a delay before the search is made.
 		 *  @type integer
 		 *  @default 0
 		 *
@@ -14176,7 +14176,7 @@
 		 *    // Ordering using `input` node values
 		 *    $.fn.dataTable.ext.order['dom-text'] = function  ( settings, col )
 		 *    {
-		 *      return this.api().column( col, {order:'index'} ).nodes().map( function ( td, i ) {
+		 *      return this.timesheet().column( col, {order:'index'} ).nodes().map( function ( td, i ) {
 		 *        return $('input', td).val();
 		 *      } );
 		 *    }

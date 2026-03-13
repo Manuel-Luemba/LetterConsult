@@ -189,8 +189,8 @@ $(document).on( 'init.dt', function (e, ctx) {
 	$( 'div.dataTables_length select', api.table().container() ).wrap('<div class="select">');
 
 	// Filtering input
-	// $( 'div.dataTables_filter.ui.input', api.table().container() ).removeClass('input').addClass('form');
-	// $( 'div.dataTables_filter input', api.table().container() ).wrap( '<span class="ui input" />' );
+	// $( 'div.dataTables_filter.ui.input', timesheet.table().container() ).removeClass('input').addClass('form');
+	// $( 'div.dataTables_filter input', timesheet.table().container() ).wrap( '<span class="ui input" />' );
 } );
 
 

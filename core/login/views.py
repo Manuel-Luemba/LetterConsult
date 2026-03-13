@@ -8,6 +8,10 @@ from django.views.generic import FormView, RedirectView
 
 import app.settings as setting
 
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
 
 class LoginFormView(LoginView):
     template_name = 'login.html'
@@ -49,3 +53,14 @@ class LogoutView(RedirectView):
     def dispatch(self, request, *args, **kwargs):
         logout(request)
         return super().dispatch(request, *args, **kwargs)
+
+
+class LogoutViewApi(APIView):
+    def post(self, request):
+        try:
+            refresh_token = request.data["refresh"]
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+            return Response(status=205)
+        except Exception as e:
+            return Response(status=400)

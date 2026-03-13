@@ -1,25 +1,104 @@
-from datetime import timedelta, date
-
 from crum import get_current_request
 from django.contrib.auth.models import AbstractUser
 from django.db import models
-from django.db.models import Sum, F, DurationField
+from django.db.models import Q
 from django.forms import model_to_dict
 from app.settings import MEDIA_URL, STATIC_URL
 from core.erp.models import Department
 from core.homepage.models import Absence, Position
+from core.project.models import Project
 
 
 class User(AbstractUser):
     image = models.ImageField(upload_to='users/%Y%m%d', blank=True, null=True)
-    max_days_year = models.PositiveIntegerField(default=22, blank=True, null=True)
-    available_days = models.PositiveIntegerField(default=0, blank=True, null=True)
-    used_days = models.PositiveIntegerField(default=0, blank=True, null=True)
-    hold_days = models.PositiveIntegerField(default=0, blank=True, null=True)
-
-    department = models.ForeignKey(Department, on_delete=models.CASCADE, blank=True, null=True, verbose_name='Departamento')
+    department = models.ForeignKey(Department, on_delete=models.CASCADE, blank=True, null=True,
+                                   verbose_name='Departamento')
     position = models.ForeignKey(Position, on_delete=models.CASCADE, blank=True, null=True, verbose_name='Cargo')
 
+    # limite_aprovacao = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    # pode_aprovar = models.BooleanField(default=False)
+    # digital_sign = models.TextField(null=True, blank=True)  # Para futura integração
+
+    def __str__(self):
+        return self.get_full_name()
+
+    def get_full_name(self):
+        return '{} {}'.format(self.first_name, self.last_name)
+
+    # ----- PROPERTIES DE GRUPOS ROBUSTAS -----
+    @property
+    def group_names(self):
+        return [group.name for group in self.groups.all()]
+
+    def _has_group_like(self, *patterns):
+        """Verifica se o usuário pertence a algum grupo que contenha um dos padrões (case-insensitive)"""
+        groups = self.group_names
+        for group in groups:
+            name = group.lower()
+            if any(p.lower() in name for p in patterns):
+                return True
+        return False
+
+    @property
+    def is_administrator(self):
+        return self.is_superuser or self.is_staff or self._has_group_like('admin', 'administrator', 'administrador')
+
+    @property
+    def is_manager(self):
+        return (
+            self._has_group_like('manager', 'gerente') or 
+            hasattr(self, 'managed_department') or 
+            self.managed_departments.exists()
+        )
+
+    @property
+    def is_director(self):
+        return self._has_group_like('director', 'diretor')
+
+    @property
+    def is_deputy_director(self):
+        return self._has_group_like('deputy', 'adjunto', 'vice')
+
+    @property
+    def is_purchasing_central(self):
+        return self._has_group_like('purchasing', 'compras', 'central')
+
+    @property
+    def is_team_leader(self):
+        return (
+            self._has_group_like('teamleader', 'lider', 'chefe') or 
+            self.led_projects.exists()
+        )
+
+    @property
+    def is_project_responsible(self):
+        return (
+            self._has_group_like('projectresponsable', 'responsavel') or 
+            self.responsible_projects.exists()
+        )
+
+    @property
+    def is_deputy_coordinator(self):
+        return (
+            self._has_group_like('deputycoordinator', 'coordenador', 'adjundo') or 
+            self.deputy_managed_departments.exists()
+        )
+
+    @property
+    def is_approver(self):
+        """Define se o utilizador pode aprovar alguma fase do workflow."""
+        return (
+            self.is_manager or 
+            self.is_director or 
+            self.is_administrator or 
+            self.is_purchasing_central or 
+            self.is_team_leader or 
+            self.is_project_responsible or 
+            self.is_deputy_coordinator or
+            self._has_group_like('logistica', 'logistics')
+        )
+
+    # ----- MÉTODOS EXISTENTES (MANTIDOS) -----
 
     def get_image(self):
         if self.image:
@@ -30,15 +109,16 @@ class User(AbstractUser):
         item = model_to_dict(self, exclude=['password', 'user_permissions', 'last_login'])
         if self.last_login:
             item['last_login'] = self.last_login.strftime('%Y-%m-%d')
+
         item['date_joined'] = self.date_joined.strftime('%Y-%m-%d')
         item['image'] = self.get_image()
-        print(self.department)
-        item['department'] = self.department.toJson()
-        item['position'] = self.position.toJson()
+
+        item['department'] = self.department.toJson() if self.department else None
+        item['position'] = self.position.toJson() if self.position else None
 
         item['full_name'] = self.get_full_name()
         item['groups'] = [{'id': g.id, 'name': g.name} for g in self.groups.all()]
-        print(item)
+
         return item
 
     def get_group_session(self):
@@ -51,70 +131,59 @@ class User(AbstractUser):
         except:
             pass
 
-
     def save(self, *args, **kwargs):
         super().save()
+    # ----- REGRAS DE NEGÓCIO -----
+    @property
+    def is_in_project(self):
+        """Verifica se o utilizador está alocado em algum projeto ativo."""
+        return Project.objects.filter(
+            Q(team_leader=self) |
+            Q(responsables=self) |
+            Q(administrative_staff=self),
+            is_active=True
+        ).exists()
 
+    def get_current_project(self):
+        """Retorna o projeto atual (prioridade: Team Leader > Responsável > Administrativo)."""
+        # Team Leader
+        project = Project.objects.filter(team_leader=self, is_active=True).first()
+        if project:
+            return project
+        # Responsável
+        project = Project.objects.filter(responsables=self, is_active=True).first()
+        if project:
+            return project
+        # Administrativo
+        project = Project.objects.filter(administrative_staff=self, is_active=True).first()
+        return project
 
-    def atualizar_ferias_anuais(self):
-        # Calcula o total de dias de ausência aprovados para o usuário
-        total_ausencias_aprovadas = Absence.objects.filter(
-            User=self.user, status='Aprovado'
-        ).aggregate(total_dias=Sum(F('end_date') - F('start_date'), output_field=DurationField()))[
-                                        'total_dias'] or timedelta(days=0)
+    def approves_directly_to_purchasing(self):
+        """
+        Quem NÃO precisa aprovação departamental?
+        - Team Leader, Project Responsable, Manager, DeputyCoordinator, Director, DeputyDirector
+        """
+        direct_groups = [
+            'TeamLeader', 'ProjectResponsable', 'Manager',
+            'DeputyCoordinator', 'Director', 'DeputyDirector'
+        ]
+        return any(group in self.group_names for group in direct_groups)
 
-        # Considera o limite máximo de 22 dias por ano
-        # dias_maximos_por_ano = 22
-
-        # Calcula os dias acumulados do ano anterior (se houver)
-        dias_acumulados_anterior = self.available_days - self.max_days_year
-        if dias_acumulados_anterior < 0:
-            dias_acumulados_anterior = 0
-
-        # Atualiza o saldo de férias anuais
-        self.available_days = max(0,
-                                  dias_acumulados_anterior + self.max_days_year - total_ausencias_aprovadas.days)
-        self.save()
-
-    def calcular_dias_disponiveis(self):
-        total_available_days = self.available_days
-        ano_atual = date.today().year
-        ausencias_ano_atual = Absence.objects.filter(data_inicio__year=ano_atual, User=self.user, status='Aprovado')
-        for ausencia in ausencias_ano_atual:
-            total_available_days -= (ausencia.end_date - ausencia.start_date).days
-        self.available_days = max(0, total_available_days)
-        self.save()
-
-    def notificacao_ferias_seis_meses(self):
-        # Calcula a data há 6 meses atrás
-        data_seis_meses_atras = date.today() - timedelta(days=180)
-
-        # Filtra as ausências nos últimos 6 meses
-        ausencias_seis_meses = Absence.objects.filter(data_inicio__gte=data_seis_meses_atras)
-
-        # Calcula o total de dias de ausência nos últimos 6 meses
-        total_dias_ausencia_seis_meses = sum(
-            (ausencia.end_date - ausencia.start_date).days + 1 for ausencia in ausencias_seis_meses)
-
-        # Calcula os dias disponíveis de férias atualmente
-        dias_disponiveis = self.calcular_dias_disponiveis()
-
-        # Verifica se o funcionário tem mais de 22 dias de férias disponíveis após 6 meses
-        if total_dias_ausencia_seis_meses == 0 and dias_disponiveis > 22:
-            # Envia a notificação para o funcionário
-            Notification.objects.create(
-                funcionario=self,
-                mensagem=f"Você tem mais de 22 dias de férias disponíveis após 6 meses. Por favor, planeje suas férias."
-            )
-
-    def __str__(self):
-        return self.get_full_name()
-
-class Notification(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    mensagem = models.TextField()
-    lida = models.BooleanField(default=False)
-    criado_em = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return self.mensagem
+# class EmployeeWorkSettings(models.Model):
+#     employee = models.OneToOneField(User, on_delete=models.CASCADE, related_name='work_settings')
+#     weekly_hours_target = models.DecimalField(default=40, decimal_places=2, max_digits=5)
+#     daily_hours_target = models.DecimalField(default=8, decimal_places=2, max_digits=5)
+#     preferred_work_days = models.CharField(max_length=13, default="1,2,3,4,5")  # Seg-Sex
+#     created_at = models.DateTimeField(auto_now_add=True)
+#     updated_at = models.DateTimeField(auto_now=True)
+#
+# class EmployeeHRProfile(models.Model):
+#     employee = models.OneToOneField(User, on_delete=models.CASCADE, related_name='hr_profile')
+#     bi = models.CharField(max_length=20)
+#     salary = models.DecimalField(max_digits=10, decimal_places=2)
+#     profit = models.TextField(blank=True, null=True)
+#
+# class PurchaseProfile(models.Model):
+#     employee = models.OneToOneField(User, on_delete=models.CASCADE, related_name='purchase_profile')
+#     limite_aprovacao = models.DecimalField(max_digits=10, decimal_places=2)
+#     centro_compras = models.CharField(max_length=100)

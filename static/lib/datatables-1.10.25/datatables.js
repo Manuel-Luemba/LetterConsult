@@ -5020,7 +5020,7 @@ jQuery.event = {
 			// If event changes its type, use the special event handlers for the changed type
 			special = jQuery.event.special[ type ] || {};
 
-			// If selector defined, determine special event api type, otherwise given type
+			// If selector defined, determine special event timesheet type, otherwise given type
 			type = ( selector ? special.delegateType : special.bindType ) || type;
 
 			// Update special based on newly reset type
@@ -10616,7 +10616,7 @@ return jQuery;
   var VERSION = '4.6.0';
   var DATA_KEY = 'bs.alert';
   var EVENT_KEY = "." + DATA_KEY;
-  var DATA_API_KEY = '.data-api';
+  var DATA_API_KEY = '.data-timesheet';
   var JQUERY_NO_CONFLICT = $__default['default'].fn[NAME];
   var SELECTOR_DISMISS = '[data-dismiss="alert"]';
   var EVENT_CLOSE = "close" + EVENT_KEY;
@@ -10772,7 +10772,7 @@ return jQuery;
   var VERSION$1 = '4.6.0';
   var DATA_KEY$1 = 'bs.button';
   var EVENT_KEY$1 = "." + DATA_KEY$1;
-  var DATA_API_KEY$1 = '.data-api';
+  var DATA_API_KEY$1 = '.data-timesheet';
   var JQUERY_NO_CONFLICT$1 = $__default['default'].fn[NAME$1];
   var CLASS_NAME_ACTIVE = 'active';
   var CLASS_NAME_BUTTON = 'btn';
@@ -10971,7 +10971,7 @@ return jQuery;
   var VERSION$2 = '4.6.0';
   var DATA_KEY$2 = 'bs.carousel';
   var EVENT_KEY$2 = "." + DATA_KEY$2;
-  var DATA_API_KEY$2 = '.data-api';
+  var DATA_API_KEY$2 = '.data-timesheet';
   var JQUERY_NO_CONFLICT$2 = $__default['default'].fn[NAME$2];
   var ARROW_LEFT_KEYCODE = 37; // KeyboardEvent.which value for left arrow key
 
@@ -11570,7 +11570,7 @@ return jQuery;
   var VERSION$3 = '4.6.0';
   var DATA_KEY$3 = 'bs.collapse';
   var EVENT_KEY$3 = "." + DATA_KEY$3;
-  var DATA_API_KEY$3 = '.data-api';
+  var DATA_API_KEY$3 = '.data-timesheet';
   var JQUERY_NO_CONFLICT$3 = $__default['default'].fn[NAME$3];
   var Default$1 = {
     toggle: true,
@@ -11919,7 +11919,7 @@ return jQuery;
   var VERSION$4 = '4.6.0';
   var DATA_KEY$4 = 'bs.dropdown';
   var EVENT_KEY$4 = "." + DATA_KEY$4;
-  var DATA_API_KEY$4 = '.data-api';
+  var DATA_API_KEY$4 = '.data-timesheet';
   var JQUERY_NO_CONFLICT$4 = $__default['default'].fn[NAME$4];
   var ESCAPE_KEYCODE = 27; // KeyboardEvent.which value for Escape (Esc) key
 
@@ -12433,7 +12433,7 @@ return jQuery;
   var VERSION$5 = '4.6.0';
   var DATA_KEY$5 = 'bs.modal';
   var EVENT_KEY$5 = "." + DATA_KEY$5;
-  var DATA_API_KEY$5 = '.data-api';
+  var DATA_API_KEY$5 = '.data-timesheet';
   var JQUERY_NO_CONFLICT$5 = $__default['default'].fn[NAME$5];
   var ESCAPE_KEYCODE$1 = 27; // KeyboardEvent.which value for Escape (Esc) key
 
@@ -14065,7 +14065,7 @@ return jQuery;
   var VERSION$8 = '4.6.0';
   var DATA_KEY$8 = 'bs.scrollspy';
   var EVENT_KEY$8 = "." + DATA_KEY$8;
-  var DATA_API_KEY$6 = '.data-api';
+  var DATA_API_KEY$6 = '.data-timesheet';
   var JQUERY_NO_CONFLICT$8 = $__default['default'].fn[NAME$8];
   var Default$6 = {
     offset: 10,
@@ -14357,7 +14357,7 @@ return jQuery;
   var VERSION$9 = '4.6.0';
   var DATA_KEY$9 = 'bs.tab';
   var EVENT_KEY$9 = "." + DATA_KEY$9;
-  var DATA_API_KEY$7 = '.data-api';
+  var DATA_API_KEY$7 = '.data-timesheet';
   var JQUERY_NO_CONFLICT$9 = $__default['default'].fn[NAME$9];
   var EVENT_HIDE$3 = "hide" + EVENT_KEY$9;
   var EVENT_HIDDEN$3 = "hidden" + EVENT_KEY$9;
@@ -27589,7 +27589,7 @@ function nextTick(fn, arg1, arg2, arg3) {
 /* 33 */
 /***/ (function(module, exports, __webpack_require__) {
 
-/* eslint-disable node/no-deprecated-api */
+/* eslint-disable node/no-deprecated-timesheet */
 var buffer = __webpack_require__(1)
 var Buffer = buffer.Buffer
 
@@ -37181,7 +37181,7 @@ PdfPrinter.prototype.createPdfKitDocument = function (docDefinition, options) {
 function setMetadata(docDefinition, pdfKitDoc) {
 	// PDF standard has these properties reserved: Title, Author, Subject, Keywords,
 	// Creator, Producer, CreationDate, ModDate, Trapped.
-	// To keep the pdfmake api consistent, the info field are defined lowercase.
+	// To keep the pdfmake timesheet consistent, the info field are defined lowercase.
 	// Custom properties don't contain a space.
 	function standardizePropertyKey(key) {
 		var standardProperties = ['Title', 'Author', 'Subject', 'Keywords',
@@ -41936,7 +41936,7 @@ module.exports = deprecate;
  * @param {Function} fn - the function to deprecate
  * @param {String} msg - the string to print to the console when `fn` is invoked
  * @returns {Function} a new "deprecated" version of `fn`
- * @api public
+ * @timesheet public
  */
 
 function deprecate (fn, msg) {
@@ -41967,7 +41967,7 @@ function deprecate (fn, msg) {
  *
  * @param {String} name
  * @returns {Boolean}
- * @api private
+ * @timesheet private
  */
 
 function config (name) {
@@ -81336,11 +81336,11 @@ this.pdfMake = this.pdfMake || {}; this.pdfMake.vfs = {
 	 * top level object had. For example, these two calls are equivalent:
 	 *
 	 *     // Not chained
-	 *     api.row.add( {...} );
-	 *     api.draw();
+	 *     timesheet.row.add( {...} );
+	 *     timesheet.draw();
 	 *
 	 *     // Chained
-	 *     api.row.add( {...} ).draw();
+	 *     timesheet.row.add( {...} ).draw();
 	 *
 	 * @class DataTable.Api
 	 * @param {array|object|string|jQuery} context DataTable identifier. This is
@@ -81356,15 +81356,15 @@ this.pdfMake = this.pdfMake || {}; this.pdfMake.vfs = {
 	 *
 	 * @example
 	 *   // Direct initialisation during DataTables construction
-	 *   var api = $('#example').DataTable();
+	 *   var timesheet = $('#example').DataTable();
 	 *
 	 * @example
 	 *   // Initialisation using a DataTables jQuery object
-	 *   var api = $('#example').dataTable().api();
+	 *   var timesheet = $('#example').dataTable().timesheet();
 	 *
 	 * @example
 	 *   // Initialisation as a constructor
-	 *   var api = new $.fn.DataTable.Api( 'table.dataTable' );
+	 *   var timesheet = new $.fn.DataTable.Api( 'table.dataTable' );
 	 */
 	_Api = function ( context, data )
 	{
@@ -86404,7 +86404,7 @@ this.pdfMake = this.pdfMake || {}; this.pdfMake.vfs = {
 		/**
 		 * Search delay option. This will throttle full table searches that use the
 		 * DataTables provided search input element (it does not effect calls to
-		 * `dt-api search()`, providing a delay before the search is made.
+		 * `dt-timesheet search()`, providing a delay before the search is made.
 		 *  @type integer
 		 *  @default 0
 		 *
@@ -88659,7 +88659,7 @@ this.pdfMake = this.pdfMake || {}; this.pdfMake.vfs = {
 		 *    // Ordering using `input` node values
 		 *    $.fn.dataTable.ext.order['dom-text'] = function  ( settings, col )
 		 *    {
-		 *      return this.api().column( col, {order:'index'} ).nodes().map( function ( td, i ) {
+		 *      return this.timesheet().column( col, {order:'index'} ).nodes().map( function ( td, i ) {
 		 *        return $('input', td).val();
 		 *      } );
 		 *    }
@@ -91639,7 +91639,7 @@ $.extend( _dtButtons, {
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  * DataTables API
  *
- * For complete documentation, please refer to the docs/api directory or the
+ * For complete documentation, please refer to the docs/timesheet directory or the
  * DataTables site
  */
 
@@ -94936,7 +94936,7 @@ Responsive.renderer = {
 							'</span> '+
 						'</li>'
 					)
-						.append( $('<span class="dtr-data"/>').append( _childNodes( api, col.rowIndex, col.columnIndex ) ) )// api.cell( col.rowIndex, col.columnIndex ).node().childNodes ) )
+						.append( $('<span class="dtr-data"/>').append( _childNodes( api, col.rowIndex, col.columnIndex ) ) )// timesheet.cell( col.rowIndex, col.columnIndex ).node().childNodes ) )
 						.appendTo( ul );
 
 					found = true;
