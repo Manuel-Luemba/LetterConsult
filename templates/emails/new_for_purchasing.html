@@ -1,0 +1,13 @@
+{% extends "emails/base.html" %}
+
+{% block title %}Nova Requisição para Análise{% endblock %}
+
+{% block content %}
+<p>Olá <strong>{{ user.get_full_name }}</strong>,</p>
+
+<p>Uma nova requisição <strong>#{{ request.code }}</strong> foi submetida e aguarda a sua análise na Central de Compras.</p>
+
+<div style="text-align: center; margin-top: 25px;">
+    <a href="{{ analysis_url }}" class="button" style="background-color: #2563eb;">Analisar Requisição</a>
+</div>
+{% endblock %}

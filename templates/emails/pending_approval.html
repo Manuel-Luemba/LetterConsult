@@ -1,0 +1,38 @@
+{% extends "emails/base.html" %}
+
+{% block title %}Aprovação Pendente{% endblock %}
+
+{% block content %}
+<p>Olá {{ approver.get_full_name }},</p>
+
+<p>Uma requisição aguarda sua aprovação.</p>
+
+<h3 style="color: #0A4B78; border-bottom: 1px solid #eee; padding-bottom: 5px;">Detalhes:</h3>
+<ul style="list-style: none; padding: 0;">
+    <li style="margin-bottom: 8px;"><strong>Requisição:</strong> #{{ request.code }}</li>
+    <li style="margin-bottom: 8px;"><strong>Solicitante:</strong> {{ request.requested_by.get_full_name }}</li>
+    <li style="margin-bottom: 8px;"><strong>Contexto:</strong>
+        {% if request.context_type == 'PROJECT' %}
+            Projeto: {{ request.project.name }}
+        {% else %}
+            Departamento: {{ request.department.name }}
+        {% endif %}
+    </li>
+    <li style="margin-bottom: 8px;"><strong>Data Limite:</strong> {{ request.required_date|date:"d/m/Y" }}</li>
+    <li style="margin-bottom: 8px;"><strong>Urgência:</strong> {{ request.get_urgency_level_display }}</li>
+    <li style="margin-bottom: 8px;"><strong>Valor Total:</strong> <span style="color: #0A4B78; font-weight: bold;">{{ request.total_amount|floatformat:2 }} Kz</span></li>
+</ul>
+
+{% if request.justification %}
+<h3 style="color: #0A4B78; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-top: 25px;">Justificativa:</h3>
+<p style="background: #f9f9f9; padding: 15px; border-radius: 4px; border-left: 4px solid #0A4B78;">{{ request.justification }}</p>
+{% endif %}
+
+<div style="text-align: center; margin-top: 30px;">
+    <a href="{{ approval_url }}" class="button">Aprovar ou Rejeitar no Sistema</a>
+</div>
+
+<p style="margin-top: 30px; font-size: 13px; color: #777;">
+    Pode também aceder ao sistema diretamente para consultar todos os detalhes da requisição.
+</p>
+{% endblock %}

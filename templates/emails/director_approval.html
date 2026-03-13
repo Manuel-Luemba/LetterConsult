@@ -1,0 +1,19 @@
+{% extends "emails/base.html" %}
+
+{% block title %}Aprovação da Direção{% endblock %}
+
+{% block content %}
+<p>Olá <strong>{{ director.get_full_name }}</strong>,</p>
+
+<p>A requisição <strong>#{{ request.code }}</strong> foi encaminhada pela Central de Compras e aguarda a aprovação da Direção.</p>
+
+{% if reason %}
+<p style="background: #fdf2f2; padding: 10px; border-left: 4px solid #9333ea; font-size: 14px;">
+    <strong>Motivo do encaminhamento:</strong> {{ reason }}
+</p>
+{% endif %}
+
+<div style="text-align: center; margin-top: 25px;">
+    <a href="{{ approval_url }}" class="button" style="background-color: #9333ea;">Ver e Aprovar Requisição</a>
+</div>
+{% endblock %}

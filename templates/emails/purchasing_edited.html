@@ -1,0 +1,13 @@
+{% extends "emails/base.html" %}
+
+{% block title %}Requisição Editada pela Central{% endblock %}
+
+{% block content %}
+<p>Olá <strong>{{ requestor.get_full_name }}</strong>,</p>
+
+<p>A sua requisição <strong>#{{ request.code }}</strong> foi editada por <strong>{{ editor.get_full_name }}</strong> na Central de Compras.</p>
+
+<p style="background: #fff8e1; padding: 15px; border-left: 4px solid #f59e0b; color: #856404;">
+    Por favor, aceda ao sistema para rever as alterações efetuadas nos itens ou especificações.
+</p>
+{% endblock %}

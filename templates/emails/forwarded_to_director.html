@@ -1,0 +1,17 @@
+{% extends "emails/base.html" %}
+
+{% block title %}Encaminhado para Direção{% endblock %}
+
+{% block content %}
+<p>Olá <strong>{{ request.requested_by.get_full_name }}</strong>,</p>
+
+<p>A sua requisição <strong>#{{ request.code }}</strong> foi encaminhada para a Direção por <strong>{{ actor.get_full_name }}</strong>.</p>
+
+{% if comments %}
+<p style="background: #f0f7ff; padding: 10px; border-left: 4px solid #2563eb; font-size: 14px;">
+    <strong>Observações:</strong> {{ comments }}
+</p>
+{% endif %}
+
+<p>Será notificado assim que houver uma decisão final da Direção.</p>
+{% endblock %}

@@ -1,0 +1,11 @@
+{% extends "emails/base.html" %}
+
+{% block title %}Notificação de Sistema{% endblock %}
+
+{% block content %}
+<p>Olá <strong>{{ user.get_full_name }}</strong>,</p>
+
+<p>A requisição <strong>#{{ request.code }}</strong> que também lhe estava atribuída foi aprovada por <strong>{{ approver.get_full_name }}</strong>.</p>
+
+<p style="color: #666; font-style: italic;">Não é necessária nenhuma ação adicional da sua parte para este processo.</p>
+{% endblock %}

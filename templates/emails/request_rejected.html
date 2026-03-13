@@ -1,0 +1,23 @@
+{% extends "emails/base.html" %}
+
+{% block title %}Requisição Rejeitada{% endblock %}
+
+{% block content %}
+<p>Olá {{ requestor.get_full_name }},</p>
+
+<p>Informamos que a sua requisição <strong>#{{ request.code }}</strong> foi <strong style="color: #dc3545; text-transform: uppercase;">rejeitada</strong>.</p>
+
+<h3 style="color: #dc3545; border-bottom: 1px solid #eee; padding-bottom: 5px;">Motivo:</h3>
+<div style="background-color: #fff5f5; padding: 15px; border-left: 4px solid #dc3545; color: #333;">
+    {{ reason }}
+</div>
+
+<h3 style="color: #666; font-size: 14px; margin-top: 20px;">Detalhes da Revisão:</h3>
+<ul style="list-style: none; padding: 0; font-size: 13px; color: #666;">
+    <li style="margin-bottom: 4px;"><strong>Rejeitado por:</strong> {{ approver.get_full_name }}</li>
+    <li style="margin-bottom: 4px;"><strong>Data:</strong> {{ request.created_at|date:"d/m/Y H:i" }}</li>
+    <li style="margin-bottom: 4px;"><strong>Valor Total:</strong> {{ request.total_amount|floatformat:2 }} Kz</li>
+</ul>
+
+<p style="margin-top: 20px;">Pode aceder ao sistema para analisar as observações ou submeter uma nova requisição.</p>
+{% endblock %}

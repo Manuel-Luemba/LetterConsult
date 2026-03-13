@@ -1,0 +1,14 @@
+{% extends "emails/base.html" %}
+
+{% block title %}Requisição Aprovada{% endblock %}
+
+{% block content %}
+<p>Olá <strong>{{ requestor.get_full_name }}</strong>,</p>
+
+<p style="font-size: 18px;">
+    A sua requisição <strong>#{{ request.code }}</strong> foi
+    <span style="color: #16a34a; font-weight: bold; text-transform: uppercase;">aprovada</span>. ✅
+</p>
+
+<p>Pode agora consultar o estado da sua requisição no sistema para os próximos passos.</p>
+{% endblock %}

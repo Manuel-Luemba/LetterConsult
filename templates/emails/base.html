@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { 
+            font-family: 'Gill Sans', 'Gill Sans MT', Calibri, 'Trebuchet MS', sans-serif; 
+            line-height: 1.6; 
+            color: #333; 
+            margin: 0; 
+            padding: 0; 
+            background-color: #f4f4f4;
+        }
+        .wrapper {
+            width: 100%;
+            background-color: #f4f4f4;
+            padding: 20px 0;
+        }
+        .container { 
+            max-width: 600px; 
+            margin: 0 auto; 
+            background-color: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        .header { 
+            background-color: #0A4B78; 
+            color: #ffffff; 
+            padding: 30px; 
+            text-align: center; 
+        }
+        .header h1 { margin: 0; font-size: 24px; font-weight: 300; }
+        .content { 
+            padding: 30px; 
+            background-color: #ffffff; 
+        }
+        .button {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #0A4B78;
+            color: white !important;
+            text-decoration: none;
+            border-radius: 4px;
+            margin-top: 20px;
+            font-weight: bold;
+        }
+        .footer { 
+            background-color: #ffffff; 
+            padding: 0; 
+            text-align: center; 
+            border-top: 1px solid #eeeeee;
+        }
+        .signature-banner {
+            width: 100%;
+            display: block;
+        }
+        .footer-info {
+            padding: 20px;
+            font-size: 12px;
+            color: #666;
+            line-height: 1.8;
+        }
+        .contact-links a {
+            color: #0A4B78;
+            text-decoration: none;
+            margin: 0 5px;
+        }
+        .disclaimer {
+            padding: 15px 30px;
+            font-size: 10px;
+            color: #999;
+            background-color: #fafafa;
+            border-top: 1px solid #f0f0f0;
+            text-align: justify;
+        }
+    </style>
+</head>
+<body>
+    <div class="wrapper">
+        <div class="container">
+            <div class="header">
+                <h1>{% block title %}ENGCONSULT{% endblock %}</h1>
+            </div>
+            
+            <div class="content">
+                {% block content %}{% endblock %}
+            </div>
+            
+            <div class="footer">
+                <!-- Banner da Imagem Corporativa -->
+                <img src="{{ site_url }}/static/img/email_footer.png" alt="ENGCONSULT Branding" class="signature-banner">
+                
+                <div class="footer-info">
+                    <p><strong>ENGCONSULT - ENGINEERING, CONSULTING & DEVELOPMENT</strong></p>
+                    <p class="contact-links">
+                        <span>Geral: (+244) 949 699 516 / 222 001 726</span> | 
+                        <a href="mailto:info@engconsult-ao.com">info@engconsult-ao.com</a> | 
+                        <a href="http://www.engconsult-ao.com">www.engconsult-ao.com</a>
+                    </p>
+                    <p>Av. Rei Katyavala, Edifício Avenca Plaza nº 43/45 – Maculuso - Luanda</p>
+                </div>
+            </div>
+
+            <div class="disclaimer">
+                Se você não é obrigado a manter uma cópia impressa para fins legais ou de auditoria, por favor considere o meio ambiente antes de imprimir este e-mail. Informações privilegiadas / confidenciais podem estar contidas nesta mensagem.<br>
+                <i style="font-size: 9px; display: block; margin-top: 5px;">
+                If you are not required to keep a hard copy for legal or audit, please consider the environment before printing this email. Privileged / Confidential Information may be contained in this message.
+                </i>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
