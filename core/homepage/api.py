@@ -1,25 +1,24 @@
 from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404
-
 from ninja import Router
 from ninja.errors import HttpError
-from rest_framework.decorators import authentication_classes, permission_classes
-from rest_framework.permissions import IsAuthenticated
-from rest_framework_simplejwt.authentication import JWTAuthentication
-
 from .models import Position
 from .schemas import PositionIn, PositionOut, PaginatedPositionResponse
+from core.login.jwt_auth import JWTAuth
 
-router = Router(tags=["Positions"])
+router = Router(tags=["Positions"], auth=JWTAuth())
+
+def check_admin(request):
+    if not getattr(request.auth, 'is_administrator', False):
+        raise HttpError(403, "Apenas administradores podem executar esta ação.")
 
 
 # ------------------------------------------------------------
 # CREATE
 # ------------------------------------------------------------
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.post("/create", response=PositionOut)
 def create_position(request, payload: PositionIn):
+    check_admin(request)
     position = Position.objects.create(
         name=payload.name,
         desc=payload.desc
@@ -30,11 +29,6 @@ def create_position(request, payload: PositionIn):
 # ------------------------------------------------------------
 # LIST PAGINATED
 # ------------------------------------------------------------
-
-
-
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.get("/list", response=PaginatedPositionResponse)
 def get_positions_paginated(request, page: int = 1, page_size: int = 15):
     try:
@@ -65,8 +59,6 @@ def get_positions_paginated(request, page: int = 1, page_size: int = 15):
 # ------------------------------------------------------------
 # GET BY ID
 # ------------------------------------------------------------
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.get("/{position_id}", response=PositionOut)
 def get_position(request, position_id: int):
     position = get_object_or_404(Position, id=position_id)
@@ -76,10 +68,9 @@ def get_position(request, position_id: int):
 # ------------------------------------------------------------
 # UPDATE
 # ------------------------------------------------------------
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.put("/{position_id}", response=PositionOut)
 def update_position(request, position_id: int, payload: PositionIn):
+    check_admin(request)
     position = get_object_or_404(Position, id=position_id)
 
     position.name = payload.name
@@ -92,11 +83,10 @@ def update_position(request, position_id: int, payload: PositionIn):
 # ------------------------------------------------------------
 # DELETE
 # ------------------------------------------------------------
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.delete("/{position_id}")
 def delete_position(request, position_id: int):
+    check_admin(request)
     position = get_object_or_404(Position, id=position_id)
     position.delete()
 
-    return {"success": True}
+    return {"success": True}

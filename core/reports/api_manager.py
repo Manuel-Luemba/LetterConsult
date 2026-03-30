@@ -1,4 +1,3 @@
-# core/dashboard/api_manager.py
 from django.core.exceptions import PermissionDenied
 from ninja import Router, Query
 from django.db.models import Q, Sum, Count
@@ -7,12 +6,8 @@ from datetime import timedelta
 from django.utils import timezone
 from typing import List, Optional, Dict, Any
 from decimal import Decimal
-
-
-from pydantic.schema import date
-from rest_framework.decorators import permission_classes, authentication_classes
-from rest_framework.permissions import IsAuthenticated
-from rest_framework_simplejwt.authentication import JWTAuthentication
+from datetime import date
+from core.login.jwt_auth import JWTAuth
 
 from .schemas_manager import (
     ManagerDashboardResponseSchema,
@@ -36,7 +31,22 @@ from core.timesheet.models import Task, Timesheet
 from core.user.models import User
 from core.activity.models import Activity
 
-router = Router(tags=["Manager Dashboard"])
+router = Router(tags=["Manager Dashboard"], auth=JWTAuth())
+
+# ==================== HELPERS ====================
+def check_manager_access(request, department):
+    """Verifica se o utilizador é administrador ou o gestor do departamento."""
+    user = request.auth
+    if user.is_administrator:
+        return True
+    if department.manager_id == user.id:
+        return True
+    
+    # Adicionalmente, verificar se o utilizador é um gestor delegado (deputy manager)
+    if hasattr(department, 'deputy_managers') and department.deputy_managers.filter(id=user.id).exists():
+        return True
+
+    raise PermissionDenied("Você não tem permissão para aceder aos dados deste departamento.")
 
 # ==================== CACHE CONFIGURATION ====================
 from django.core.cache import cache
@@ -169,9 +179,8 @@ def calculate_department_kpis1(employees_ids, start_date, end_date, filters: Man
 
     # Calculate submission rate
     total_timesheets = timesheets_qs.count()
-    print(total_timesheets, 'submission rate total timesheets')
-    print(TimesheetStatusEnum.SUBMITTED.value, 'submission rate submitted value')
     submitted_timesheets = timesheets_qs.filter(status=TimesheetStatusEnum.SUBMITTED.value).count()
+
     submission_rate = (submitted_timesheets / total_timesheets * 100) if total_timesheets > 0 else 0
 
     # Calculate utilization rate
@@ -715,7 +724,15 @@ def get_employee_kpis(employee, start_date, end_date, filters: ManagerFilterSche
         }
 
     # Calculate overtime and weekend hours
-    overtime_hours = Decimal('0.00')
+    daily_totals = tasks_qs.values('created_at').annotate(
+        daily_sum=Sum('hour')
+    )
+    
+    overtime_hours = sum(
+        max(Decimal('0.00'), (row['daily_sum'] or Decimal('0.00')) - Decimal('8.00')) 
+        for row in daily_totals
+    )
+    
     weekend_hours = tasks_qs.filter(
         created_at__week_day__in=[1, 7]  # Sunday=1, Saturday=7
     ).aggregate(total=Sum('hour'))['total'] or Decimal('0.00')
@@ -774,34 +791,34 @@ def generate_insights(kpis: DepartmentKPISchema, employees_count: int, start_dat
 
     # Utilization insights
     if kpis.utilization_rate > 90:
-        insights.append("🚀 High utilization rate: Team is working at optimal capacity")
+        insights.append("🚀 Alta taxa de utilização: A equipa está a trabalhar na capacidade ideal")
     elif kpis.utilization_rate < 50:
-        insights.append("📉 Low utilization rate: Consider allocating more work or projects")
+        insights.append("📉 Baixa taxa de utilização: Considere alocar mais tarefas ou projetos")
     else:
-        insights.append(f"📊 Normal utilization: {kpis.utilization_rate:.1f}% of capacity")
+        insights.append(f"📊 Utilização normal: {kpis.utilization_rate:.1f}% da capacidade")
 
     # Submission rate insights
     if kpis.submission_rate == 100:
-        insights.append("✅ All timesheets submitted on time")
+        insights.append("✅ Todas as timesheets submetidas a tempo")
     elif kpis.submission_rate > 80:
-        insights.append(f"📝 Good submission rate: {kpis.submission_rate:.1f}%")
+        insights.append(f"📝 Boa taxa de submissão: {kpis.submission_rate:.1f}%")
     else:
-        insights.append(f"⚠️  Low submission rate: {kpis.submission_rate:.1f}% - Follow up with team")
+        insights.append(f"⚠️ Baixa taxa de submissão: {kpis.submission_rate:.1f}% - Acompanhe com a equipa")
 
     # Productivity insights
     if kpis.daily_average_hours > 7:
-        insights.append(f"⚡ High productivity: {kpis.daily_average_hours:.1f}h average per day")
+        insights.append(f"⚡ Alta produtividade: {kpis.daily_average_hours:.1f}h de média diária")
     elif kpis.daily_average_hours < 4:
-        insights.append(f"🐌 Low productivity: {kpis.daily_average_hours:.1f}h average per day")
+        insights.append(f"🐌 Baixa produtividade: {kpis.daily_average_hours:.1f}h de média diária")
 
     # Work pattern insights
     if kpis.days_without_records > (kpis.workdays * 0.3):  # 30% days without records
-        insights.append(f"📅 {kpis.days_without_records} days without records - check team availability")
+        insights.append(f"📅 {kpis.days_without_records} dias sem registos - verifique a disponibilidade da equipa")
 
     # Employee participation insights
     participation_rate = (kpis.employees_with_records / kpis.total_employees * 100) if kpis.total_employees > 0 else 0
     if participation_rate < 80:
-        insights.append(f"👥 Low team participation: {participation_rate:.1f}% of team has records")
+        insights.append(f"👥 Baixa participação da equipa: {participation_rate:.1f}% da equipa tem registos")
 
     return insights[:5]
 
@@ -817,8 +834,8 @@ def generate_alerts(kpis: DepartmentKPISchema, filters: ManagerFilterSchema) -> 
         alerts.append(SystemAlertSchema(
             id=f"alert_submission_{now.timestamp()}",
             type="warning",
-            title="Low Timesheet Submission Rate",
-            description=f"Only {kpis.submission_rate:.1f}% of timesheets have been submitted",
+            title="Baixa Taxa de Submissão de Timesheets",
+            description=f"Apenas {kpis.submission_rate:.1f}% das timesheets foram submetidas",
             priority=SeverityEnum.MEDIUM,
             creation_date=now,
             action_required=True,
@@ -831,8 +848,8 @@ def generate_alerts(kpis: DepartmentKPISchema, filters: ManagerFilterSchema) -> 
         alerts.append(SystemAlertSchema(
             id=f"alert_utilization_{now.timestamp()}",
             type="warning",
-            title="High Team Utilization",
-            description=f"Team is at {kpis.utilization_rate:.1f}% utilization - risk of burnout",
+            title="Alta Utilização da Equipa",
+            description=f"A equipa está com {kpis.utilization_rate:.1f}% de utilização - risco de sobrecarga",
             priority=SeverityEnum.MEDIUM,
             creation_date=now,
             action_required=True,
@@ -844,8 +861,8 @@ def generate_alerts(kpis: DepartmentKPISchema, filters: ManagerFilterSchema) -> 
         alerts.append(SystemAlertSchema(
             id=f"alert_norecords_{now.timestamp()}",
             type="critical",
-            title="No Activity Records",
-            description="No team members have recorded hours in this period",
+            title="Sem Registos de Atividade",
+            description="Nenhum membro da equipa registou horas neste período",
             priority=SeverityEnum.HIGH,
             creation_date=now,
             action_required=True,
@@ -873,8 +890,6 @@ def get_cache_key(filters: ManagerFilterSchema, user_id: int, department_id: int
 
 
 # ==================== MAIN ENDPOINTS ====================
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.get("/manager/", response=ManagerDashboardResponseSchema)
 def get_manager_dashboard(request, filters: ManagerFilterSchema = Query(...)):
     """
@@ -885,6 +900,7 @@ def get_manager_dashboard(request, filters: ManagerFilterSchema = Query(...)):
     try:
         # 1. Get manager's department
         department = get_manager_department(request)
+        check_manager_access(request, department)
 
         # 2. Generate cache key
         cache_key = get_cache_key(filters, request.auth.id, department.id)
@@ -892,8 +908,9 @@ def get_manager_dashboard(request, filters: ManagerFilterSchema = Query(...)):
         # 3. Check cache if show_details is False (summary data can be cached longer)
         if not filters.show_details:
             cached_data = cache.get(cache_key)
-            if cached_data:
-                return cached_data
+            # COMENTADO PARA DEPURAÇÃO: Forçar cálculo live
+            # if cached_data:
+            #     return cached_data
 
         # 4. Get period dates
         date_range = get_period_date_range(
@@ -1151,6 +1168,7 @@ def get_manager_dashboard(request, filters: ManagerFilterSchema = Query(...)):
                     workdays=0,
                     days_without_records=0,
                     efficiency_score=0,
+                    participation_rate=0,
                     productivity_score=0
                 ),
                 "project_distribution": [],
@@ -1200,14 +1218,13 @@ def get_manager_dashboard(request, filters: ManagerFilterSchema = Query(...)):
             }
         )
 
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.get("/manager/filter-options/", response=ManagerFilterOptionsSchema)
 def get_manager_filter_options(request):
     """Get available filter options for manager dashboard"""
 
     try:
         department = get_manager_department(request)
+        check_manager_access(request, department)
 
         # Get employees
         employees = get_department_employees(department, only_active=True)
@@ -1301,14 +1318,13 @@ def get_manager_filter_options(request):
         )
 
 
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.get("/manager/quick-stats/", response=Dict[str, Any])
 def get_quick_stats(request):
     """Get quick statistics for dashboard (optimized for speed)"""
 
     try:
         department = get_manager_department(request)
+        check_manager_access(request, department)
 
         # Current month
         today = timezone.now().date()
@@ -1386,8 +1402,6 @@ def get_quick_stats(request):
         }
 
 
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.get("/manager/summary/", response=Dict[str, Any])
 def get_dashboard_summary(
         request,
@@ -1402,6 +1416,7 @@ def get_dashboard_summary(
     """
     try:
         department = get_manager_department(request)
+        check_manager_access(request, department)
 
         # Get period
         date_range = get_period_date_range(period, start_date, end_date)

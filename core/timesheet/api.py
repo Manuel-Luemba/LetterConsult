@@ -10,25 +10,24 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 from ninja.errors import HttpError, logger
-from pydantic.json import Decimal
-from pydantic.schema import defaultdict
 
-from rest_framework.decorators import permission_classes, authentication_classes
-from rest_framework.permissions import IsAuthenticated
-from rest_framework_simplejwt.authentication import JWTAuthentication
-
-from core.user.models import User
-from core.timesheet.models import  Task, Timesheet, TimesheetComment
-from core.timesheet.schemas import  TimesheetIn, TimesheetOut,DepartmentOut, TaskOut, PaginatedTimesheetResponse, ExportRequest
+from core.login.jwt_auth import JWTAuth
+from .models import  Task, Timesheet, TimesheetComment
+from .schemas import (
+    TimesheetIn, TimesheetOut, DepartmentOut, TaskOut, 
+    PaginatedTimesheetResponse, ExportRequest,
+    TimesheetDashboardStats, TimesheetStatsCommon, TimesheetStatsManager
+)
 
 from .validators import TimesheetValidator, field_error
+from .services.timesheet_workflow_service import TimesheetWorkflowService
 
 from ..activity.models import Activity
 from ..erp.models import Department
 
 
 from .schemas import (
-    TimesheetViewSchema, CommentCreateSchema, TimesheetActionSchema, CommentSchema
+    TimesheetViewSchema, CommentCreateSchema, TimesheetActionSchema, CommentSchema, TimesheetReviewIn
 )
 
 from ninja.responses import Response
@@ -51,51 +50,200 @@ from datetime import  date
 
 
 
-router = Router(tags=["Timesheet"])
+router = Router(tags=["Timesheet"], auth=JWTAuth())
 
 
 ################################### TIMESHEET ###########################################
 
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
+@router.get("/", response=PaginatedTimesheetResponse)
+def list_timesheets(
+    request, 
+    page: int = 1, 
+    page_size: int = 20, 
+    role_context: str = 'requester',
+    start_date: date = None, 
+    end_date: date = None,
+    employee_id: Optional[int] = None,
+    department_id: Optional[int] = None,
+    status: Optional[str] = None,
+    search: Optional[str] = None
+):
+    """
+    Endpoint unificado para listagem de timesheets baseado no contexto do utilizador.
+    """
+    try:
+        user = request.auth
+        queryset = Timesheet.objects.select_related(
+            'employee', 'department'
+        ).prefetch_related(
+            'tasks', 'tasks__project', 'tasks__activity'
+        ).annotate(
+            tasks_count=Count('tasks')
+        ).order_by('-created_at', '-id')
+
+        # 1. Aplicar lÃ³gica de Contexto (PermissÃµes e Filtros Base)
+        if role_context == 'requester':
+            queryset = queryset.filter(submitted_by=user)
+        
+        elif role_context == 'approver':
+            user_department = getattr(user, 'department', None)
+            if not user_department:
+                raise HttpError(403, "Utilizador sem departamento associado.")
+            
+            if not user_department.can_be_approved_by(user):
+                raise HttpError(403, "Sem permissÃ£o de aprovaÃ§Ã£o para este departamento.")
+            
+            queryset = queryset.filter(department=user_department)
+            if not status:
+                queryset = queryset.filter(status__in=['submetido', 'aprovado', 'com_sugestoes', 'com_rejeitadas'])
+
+        elif role_context == 'admin':
+            if not (user.is_superuser or user.is_administrator or user.is_director or user.groups.filter(name='RH').exists()):
+                raise HttpError(403, "Acesso administrativo negado.")
+        
+        else:
+            raise HttpError(400, f"Contexto de papel invÃ¡lido: {role_context}")
+
+        # 2. Aplicar Filtros Adicionais
+        if employee_id:
+            queryset = queryset.filter(employee_id=employee_id)
+        if department_id:
+            queryset = queryset.filter(department_id=department_id)
+        if status:
+            queryset = queryset.filter(status=status)
+
+        if start_date and end_date:
+            queryset = queryset.filter(tasks__created_at__range=[start_date, end_date]).distinct()
+
+        if search:
+            from django.db.models import Q
+            queryset = queryset.filter(
+                Q(employee__first_name__icontains=search) | 
+                Q(employee__last_name__icontains=search) |
+                Q(obs__icontains=search)
+            ).distinct()
+
+        paginator = Paginator(queryset, page_size)
+        current_page = paginator.get_page(page)
+
+        result = []
+        for timesheet in current_page:
+            data = TimesheetOut.model_validate(timesheet)
+            data.status = timesheet.get_status_display()
+            data.can_edit = timesheet.can_edit()
+            data.can_add_task = timesheet.can_add_task()
+            if timesheet.employee:
+                data.employee_name = timesheet.employee.get_full_name()
+            result.append(data)
+
+        return {
+            'count': paginator.count,
+            'total_pages': paginator.num_pages,
+            'current_page': current_page.number,
+            'page_size': page_size,
+            'has_next': current_page.has_next(),
+            'has_prev': current_page.has_previous(),
+            'items': result
+        }
+
+    except HttpError as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Erro no endpoint unificado list_timesheets: {str(e)}")
+        raise HttpError(500, f"Erro interno: {str(e)}")
+
+@router.get("/stats", response={200: TimesheetDashboardStats})
+def get_timesheet_stats(request):
+    """
+    Retorna estatÃ­sticas para o mini-dashboard de timesheets.
+    """
+    user = request.auth
+    today = date.today()
+    
+    total_hours_month = Task.objects.filter(
+        timesheet__employee=user,
+        created_at__month=today.month,
+        created_at__year=today.year
+    ).aggregate(total=Sum('hour'))['total'] or 0.0
+
+    status_counts = Timesheet.objects.filter(
+        employee=user
+    ).values('status').annotate(count=Count('id'))
+    
+    pending_count = approved_count = rejected_count = 0
+    for s in status_counts:
+        st = s['status'].lower()
+        if st == 'submetido': pending_count = s['count']
+        elif st == 'aprovado': approved_count = s['count']
+        elif st in ['com_rejeitadas', 'rejeitado']: rejected_count += s['count']
+
+    total_relevant = pending_count + approved_count + rejected_count
+    submission_rate = (approved_count / total_relevant * 100) if total_relevant > 0 else 0.0
+
+    common_stats = TimesheetStatsCommon(
+        total_hours_month=float(total_hours_month),
+        pending_count=pending_count,
+        approved_count=approved_count,
+        rejected_count=rejected_count,
+        submission_rate=submission_rate
+    )
+
+    manager_stats = None
+    user_department = getattr(user, 'department', None)
+    if user_department and user_department.can_be_approved_by(user):
+        pending_my_approval = Timesheet.objects.filter(department=user_department, status='submetido').count()
+        approved_by_me_count = Timesheet.objects.filter(
+            department=user_department, status='aprovado',
+            status_changes__new_status='aprovado', status_changes__changed_by=user,
+            status_changes__created_at__month=today.month
+        ).distinct().count()
+        total_hours_approved = Timesheet.objects.filter(department=user_department, status='aprovado').aggregate(total=Sum('total_hour'))['total'] or 0.0
+
+        manager_stats = TimesheetStatsManager(
+            pending_my_approval=pending_my_approval,
+            approved_by_me_count=approved_by_me_count,
+            avg_approval_time=0.0,
+            total_hours_approved=float(total_hours_approved)
+        )
+
+    return 200, TimesheetDashboardStats(common=common_stats, manager=manager_stats)
+
+
 @router.get("/my", response=PaginatedTimesheetResponse)
 def my_timesheets(request, page: int = 1, page_size: int = 50, start_date: date = None, end_date: date = None):
     """
-    Endpoint com paginação manual para timesheets do usuário
+    Endpoint com paginaÃ§Ã£o manual para timesheets do usuÃ¡rio
     """
     try:
-        from django.contrib.auth import get_user_model
         user = request.auth
         queryset = (Timesheet.objects.filter(
             submitted_by=user
         ).select_related(
             'employee', 'department'
         ).prefetch_related(
-            'tasks'
+            'tasks', 'tasks__project', 'tasks__activity'
         ).annotate(
             tasks_count=Count('tasks')
         ).order_by('-id'))
 
         if start_date and end_date:
             if start_date > end_date:
-                raise HttpError(400, "A data inicial não pode ser posterior à data final")
-            queryset = queryset.filter(created_at__range=[start_date, end_date])
+                raise HttpError(400, "A data inicial nÃ£o pode ser posterior Ã  data final")
+            queryset = queryset.filter(tasks__created_at__range=[start_date, end_date]).distinct()
 
-        # ✅ PAGINAÇÃO MANUAL
         paginator = Paginator(queryset, page_size)
         current_page = paginator.get_page(page)
 
         result = []
         for timesheet in current_page:
-            data = TimesheetOut.from_orm(timesheet)
+            data = TimesheetOut.model_validate(timesheet)
             data.status = timesheet.get_status_display()
             data.can_edit = timesheet.can_edit()
             data.can_add_task = timesheet.can_add_task()
-            data.employee_name = f"{timesheet.employee.first_name} {timesheet.employee.last_name}"
-            data.submitted_name = f"{timesheet.submitted_name()}"
+            data.employee_name = timesheet.employee.get_full_name()
+            data.submitted_name = timesheet.submitted_name()
             result.append(data)
 
-        # ✅ RETORNO COM METADADOS COMPLETOS
         return {
             'count': paginator.count,
             'total_pages': paginator.num_pages,
@@ -110,131 +258,44 @@ def my_timesheets(request, page: int = 1, page_size: int = 50, start_date: date 
         logger.error(f"Erro no endpoint my_timesheets: {str(e)}")
         raise HttpError(500, "Erro interno do servidor")
 
-
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
-@router.get("/department", response=PaginatedTimesheetResponse)
-def department_timesheets(request, page: int = 1, page_size: int = 30, start_date: date = None, end_date: date = None):
-    """
-         Lista timesheets submetidas do departamento do coordenador logado ou de qualquer usuário do grupo Gerente.
-         Pode filtrar por colaborador.
-         """
-    try:
-
-        user = request.auth
-
-        # Verifica se o usuário tem acesso: é chefe OU está no grupo Gerente
-        is_gerente = user.groups.filter(name='Manager').exists()
-        user_department = getattr(user, 'department', None)
-
-        if not user_department or not is_gerente:
-            raise HttpError(403, "Acesso negado. Você precisa ser gerente ou chefe de departamento.")
-
-        queryset = Timesheet.objects.filter(
-            department=user_department, status='submetido'
-        ).select_related(
-            'employee', 'department'
-        ).prefetch_related(
-            'tasks'
-        ).annotate(
-            tasks_count=Count('tasks')
-        ).order_by('-created_at')
-
-        if start_date and end_date:
-            if start_date > end_date:
-                raise HttpError(400, "A data inicial não pode ser posterior à data final")
-            queryset = queryset.filter(created_at__range=[start_date, end_date])
-
-        # ✅ PAGINAÇÃO MANUAL
-        paginator = Paginator(queryset, page_size)
-        current_page = paginator.get_page(page)
-
-        result = []
-        for timesheet in current_page:
-            data = TimesheetOut.from_orm(timesheet)
-            data.status = timesheet.get_status_display()
-            data.can_edit = timesheet.can_edit()
-            data.can_add_task = timesheet.can_add_task()
-            result.append(data)
-
-        # ✅ RETORNO COM METADADOS COMPLETOS
-        return {
-            'count': paginator.count,
-            'total_pages': paginator.num_pages,
-            'current_page': current_page.number,
-            'page_size': page_size,
-            'has_next': current_page.has_next(),
-            'has_prev': current_page.has_previous(),
-            'items': result
-        }
-
-
-
-    except Exception as e:
-        logger.error(f"Erro no endpoint my_timesheets: {str(e)}")
-        raise HttpError(500, "Erro interno do servidor")
-
-
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.get("/all", response=PaginatedTimesheetResponse)
 def all_timesheets(request, page: int = 1, page_size: int = 10, employee_id: Optional[int] = None,
                    department_id: Optional[int] = None, start_date: date = None, end_date: date = None,
-                   status: Optional[str] = None  # ✅ NOVO PARÂMETRO
+                   status: Optional[str] = None
                    ):
     """
-    Lista TODAS as timesheets do sistema (todos os usuários)
-    Pode filtrar por colaborador, departamento e período
+    Lista TODAS as timesheets do sistema (todos os usuÃ¡rios)
     """
-
-    # ✅ TODAS as timesheets do sistema (sem filtrar por usuário)
-    queryset = Timesheet.objects.filter(status='submetido').select_related(
+    queryset = Timesheet.objects.all().select_related(
         'employee', 'department'
     ).prefetch_related(
-        'tasks'
+        'tasks', 'tasks__project', 'tasks__activity'
     ).annotate(
         tasks_count=Count('tasks')
     ).order_by('-created_at')
 
-    # Filtros opcionais
     if employee_id:
         queryset = queryset.filter(employee_id=employee_id)
-
     if department_id:
         queryset = queryset.filter(department_id=department_id)
-
     if start_date and end_date:
-        queryset = queryset.filter(created_at__range=[start_date, end_date])
-
+        queryset = queryset.filter(tasks__created_at__range=[start_date, end_date]).distinct()
     if status:
         queryset = queryset.filter(status=status)
 
-    # ✅ PAGINAÇÃO MANUAL
     paginator = Paginator(queryset, page_size)
     current_page = paginator.get_page(page)
 
     result = []
     for timesheet in current_page:
-        data = TimesheetOut(
-            id=timesheet.id,
-            employee_id=timesheet.employee.id if timesheet.employee else None,
-            employee_name=timesheet.employee.get_full_name() if timesheet.employee else "Sem colaborador",
-            department_id=timesheet.department.id if timesheet.department else None,
-            department_name=timesheet.department.name if timesheet.department else None,
-            status=timesheet.get_status_display(),
-            obs=timesheet.obs,
-            total_hour=float(timesheet.total_hour) if timesheet.total_hour else None,
-            created_at=timesheet.created_at,
-            updated_at=timesheet.updated_at,
-            can_edit=timesheet.can_edit(),
-            can_add_task=timesheet.can_add_task(),
-            tasks=[
-                TaskOut.from_orm(task) for task in timesheet.tasks.all()
-            ]
-        )
+        data = TimesheetOut.model_validate(timesheet)
+        data.status = timesheet.get_status_display()
+        data.can_edit = timesheet.can_edit()
+        data.can_add_task = timesheet.can_add_task()
+        if timesheet.employee:
+            data.employee_name = timesheet.employee.get_full_name()
         result.append(data)
 
-    # ✅ RETORNO PADRONIZADO
     return {
         'count': paginator.count,
         'total_pages': paginator.num_pages,
@@ -245,9 +306,6 @@ def all_timesheets(request, page: int = 1, page_size: int = 10, employee_id: Opt
         'items': result
     }
 
-
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.get("/{id}", response=TimesheetOut)
 def get_timesheet_by_id(request, id: int):
     """
@@ -262,15 +320,13 @@ def get_timesheet_by_id(request, id: int):
     if not timesheet:
         raise Http404("Ficha de ponto não encontrada")
 
-    data = TimesheetOut.from_orm(timesheet)
+    data = TimesheetOut.model_validate(timesheet)
     data.status = timesheet.get_status_display()
     data.can_edit = timesheet.can_edit()
     data.can_add_task = timesheet.can_add_task()
 
     return data
 
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.put("/{id}", response={200: TimesheetOut, 400: dict, 207: dict})
 def update_timesheet(request, id: int, data: TimesheetIn):
     """Atualiza timesheet com validações completas e controle de tasks"""
@@ -282,7 +338,7 @@ def update_timesheet(request, id: int, data: TimesheetIn):
         TimesheetValidator.validate_user_permission(timesheet, request.auth)
 
         # Preparar dados
-        update_data = data.dict()
+        update_data = data.model_dump()
         employee_id = update_data.get('employee_id', timesheet.employee_id)
 
         # Validação centralizada
@@ -291,18 +347,15 @@ def update_timesheet(request, id: int, data: TimesheetIn):
             update_data, id, employee_id
         )
 
-        print(f"✅ Validação passou. force_confirm={getattr(data, 'force_confirm', False)}, warnings={len(warnings)}")
-
         # 🔴 NOVO: VALIDAÇÃO DE LIMITE DIÁRIO AGREGADO (EXTRA)
         if validation_level == "strict":
-            # Verificar se após atualização algum dia excede 16h
             for task_data in data.tasks:
                 task_date = task_data.created_at
                 total_daily = TimesheetValidator._get_aggregated_daily_total(
                     employee_id,
                     task_date,
                     timesheet.id,
-                    Decimal('0.00')  # Já incluído na validação principal
+                    Decimal('0.00')
                 )
 
                 if total_daily > TimesheetValidator.MAX_HOURS_PER_DAY:
@@ -315,254 +368,91 @@ def update_timesheet(request, id: int, data: TimesheetIn):
         # 🔴 NOVO: Se houver warnings e não for confirmação forçada
         if validation_level == "strict":
             if warnings and not getattr(data, 'force_confirm', False):
-                # Determinar tipo de warning principal
-                message = None
-                if any("superior às 8h normais" in w for w in warnings):
-                    message = "⚠️ Total diário superior às 8h normais. Confirme para prosseguir."
-                elif any("excede 8 horas" in w for w in warnings):
-                    message = "⚠️ Algumas tarefas excedem 8 horas individuais. Confirme para prosseguir."
-                elif any("mínimo recomendado" in w for w in warnings):
-                    message = "⚠️ Alguns dias têm menos de 8 horas. Confirme para prosseguir."
-                else:
-                    message = "⚠️ Existem avisos que exigem confirmação."
-
+                message = "⚠️ Existem avisos que exigem confirmação."
+                if any("superior" in w for w in warnings): message = "⚠️ Total diário superior às 8h normais. Confirme para prosseguir."
+                
                 return 207, {
                     "warnings": warnings,
                     "requires_confirmation": True,
                     "daily_totals": {str(k): float(v) for k, v in daily_totals.items()},
                     "message": message,
-                    "timesheet_id": id,
-                    "validation_summary": {
-                        "max_hours_per_day": float(TimesheetValidator.MAX_HOURS_PER_DAY),
-                        "max_hours_per_task": float(TimesheetValidator.MAX_HOURS_PER_TASK),
-                        "max_retroactive_days": TimesheetValidator.MAX_RETROACTIVE_DAYS
-                    }
+                    "timesheet_id": id
                 }
 
         with transaction.atomic():
-            print("🔧 Iniciando transaction...")
-
-            # 🔐 Restrição de alteração de employee_id
             if getattr(data, 'employee_id', None) and data.employee_id != timesheet.employee_id:
-                if not request.user.is_superuser:
+                if not request.auth.is_superuser:
                     raise HttpError(403, "Você não tem permissão para alterar o funcionário deste timesheet.")
                 timesheet.employee = get_object_or_404(User, id=data.employee_id)
-                print(f"🔒 employee_id alterado para {data.employee_id} por admin.")
 
-            # 🏢 Fallback e validação do departamento
             if getattr(data, 'department_id', None) is not None:
-                department = get_object_or_404(Department, id=data.department_id)
-                timesheet.department = department
-            elif hasattr(request.user, "department") and request.user.department:
-                print(f"ℹ️ Usando fallback de department do usuário: {request.user.department.id}")
-                if not request.user.department.is_active:
-                    raise HttpError(400, "Departamento do usuário está inativo.")
-                timesheet.department = request.user.department
-            else:
-                raise HttpError(400, "Departamento não informado e não disponível pelo usuário.")
+                timesheet.department = get_object_or_404(Department, id=data.department_id)
+            elif hasattr(request.auth, "department") and request.auth.department:
+                timesheet.department = request.auth.department
 
-            # Campos adicionais
-            if getattr(data, 'created_at', None) is not None:
-                timesheet.created_at = data.created_at
-            if getattr(data, 'obs', None) is not None:
-                timesheet.obs = data.obs
-            if getattr(data, 'status', None) is not None:
-                timesheet.status = data.status
+            if getattr(data, 'obs', None) is not None: timesheet.obs = data.obs
+            if getattr(data, 'status', None) is not None: timesheet.status = data.status
 
-            # 🔄 ESTRATÉGIA CORRIGIDA: Manter tasks existentes + processar mudanças
-            print(f"🔍 Processando {len(data.tasks)} tasks recebidas...")
-
-            # Obter IDs das tasks atuais para comparação
+            # Processamento de tasks
             current_task_ids = set(Task.objects.filter(timesheet=timesheet).values_list('id', flat=True))
-            print(f"🔍 Tasks atuais no banco: {current_task_ids}")
-
             received_task_ids = set()
-            tasks_to_update = []
-            tasks_to_create = []
-
-            # Analisar tasks recebidas
+            
             for task_data in data.tasks:
                 task_id = getattr(task_data, 'id', None)
-
-                if task_id is not None and task_id > 0:
-                    # Task existente - verificar se realmente existe
-                    if task_id in current_task_ids:
-                        tasks_to_update.append((task_id, task_data))
-                        received_task_ids.add(task_id)
-                        print(f"📝 Task para atualizar: ID {task_id}")
-                    else:
-                        # ID fornecido mas não existe - tratar como nova
-                        tasks_to_create.append(task_data)
-                        print(f"🆕 Task com ID {task_id} não encontrada, criando como nova")
-                else:
-                    # Nova task - criar
-                    tasks_to_create.append(task_data)
-                    print(f"🆕 Nova task sem ID para criar")
-
-            # 🗑️ Identificar tasks para deletar (as que estão no banco mas não foram recebidas)
-            tasks_to_delete_ids = current_task_ids - received_task_ids
-            print(f"🔍 Tasks para deletar (não recebidas): {tasks_to_delete_ids}")
-
-            # Atualizar tasks existentes
-            for task_id, task_data in tasks_to_update:
-                try:
+                if task_id and task_id in current_task_ids:
+                    received_task_ids.add(task_id)
                     existing_task = Task.objects.get(id=task_id, timesheet=timesheet)
-                    # ⚠️ VERIFICAR SE HOUVE MUDANÇAS REAIS ANTES DE ATUALIZAR
-                    needs_update = (
-                            existing_task.project_id != task_data.project_id or
-                            existing_task.activity_id != task_data.activity_id or
-                            existing_task.hour != task_data.hour or
-                            existing_task.created_at != task_data.created_at
+                    existing_task.project = get_object_or_404(Project, id=task_data.project_id)
+                    existing_task.activity = get_object_or_404(Activity, id=task_data.activity_id)
+                    existing_task.hour = task_data.hour
+                    existing_task.created_at = task_data.created_at
+                    existing_task.save()
+                else:
+                    Task.objects.create(
+                        timesheet=timesheet,
+                        project=get_object_or_404(Project, id=task_data.project_id),
+                        activity=get_object_or_404(Activity, id=task_data.activity_id),
+                        hour=task_data.hour,
+                        created_at=task_data.created_at
                     )
 
-                    if needs_update:
-                        existing_task.project = get_object_or_404(Project, id=task_data.project_id)
-                        existing_task.activity = get_object_or_404(Activity, id=task_data.activity_id)
-                        existing_task.hour = task_data.hour
-                        existing_task.created_at = task_data.created_at
-                        existing_task.updated_at = timezone.now()
-                        existing_task.save()
-                        print(f"🔄 Task atualizada: {task_id}")
-                    else:
-                        print(f"ℹ️ Task {task_id} sem alterações, mantida")
+            # Deletar tasks não enviadas
+            Task.objects.filter(timesheet=timesheet).exclude(id__in=received_task_ids).delete()
 
-                except Task.DoesNotExist:
-                    print(f"⚠️ Task ID {task_id} não encontrada durante atualização")
-
-            # Criar novas tasks
-            for task_data in tasks_to_create:
-                new_task = Task.objects.create(
-                    timesheet=timesheet,
-                    project=get_object_or_404(Project, id=task_data.project_id),
-                    activity=get_object_or_404(Activity, id=task_data.activity_id),
-                    hour=task_data.hour,
-                    created_at=task_data.created_at,
-                    updated_at=timezone.now()
-                )
-                print(f"➕ Nova task criada: {new_task.id}")
-
-            # 🗑️ Excluir tasks que não foram recebidas
-            if tasks_to_delete_ids:
-                tasks_to_delete = Task.objects.filter(
-                    timesheet=timesheet,
-                    id__in=tasks_to_delete_ids
-                )
-                deleted_count = tasks_to_delete.delete()[0]
-                print(f"🗑️ Tasks excluídas (não recebidas): {deleted_count}")
-
-            # Processar deleted_task_ids explícitos (se houver)
-            deleted_task_ids = getattr(data, 'deleted_task_ids', [])
-            if deleted_task_ids is None:
-                deleted_task_ids = []
-
-            valid_explicit_deletes = []
-            for tid in deleted_task_ids:
-                try:
-                    tid_int = int(tid)
-                    if tid_int > 0 and tid_int in current_task_ids:
-                        valid_explicit_deletes.append(tid_int)
-                except (ValueError, TypeError):
-                    continue
-
-            if valid_explicit_deletes:
-                explicit_deletes = Task.objects.filter(
-                    timesheet=timesheet,
-                    id__in=valid_explicit_deletes
-                )
-                explicit_deleted_count = explicit_deletes.delete()[0]
-                print(f"🗑️ Tasks excluídas explicitamente: {explicit_deleted_count}")
-
-            # ⏱️ Recalcular horas totais
-            total_hours = Task.objects.filter(timesheet=timesheet).aggregate(
-                total=Sum('hour')
-            )['total'] or 0
-
-            timesheet.total_hour = float(total_hours)
-            timesheet.updated_at = timezone.now()
+            # Recalcular total
+            timesheet.total_hour = float(Task.objects.filter(timesheet=timesheet).aggregate(Sum('hour'))['total'] or 0)
             timesheet.save()
 
-        print("✅ Timesheet atualizado com sucesso!")
-        return 200, TimesheetOut.from_orm(timesheet)
+        return 200, TimesheetOut.model_validate(timesheet)
 
     except HttpError as e:
-        print(f"❌ HttpError: {e}")
         raise e
     except Exception as e:
-        print(f"❌ ERRO INTERNO: {str(e)}")
-        import traceback
-        print(f"❌ Traceback: {traceback.format_exc()}")
+        logger.error(f"Erro no endpoint update_timesheet: {str(e)}")
         raise HttpError(500, f"Erro interno: {str(e)}")
 
-
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.post("/", response={200: TimesheetOut, 400: dict, 207: dict})
 def create_timesheet(request, data: TimesheetIn):
     """Cria timesheet usando o validador centralizado"""
     try:
-        # Validar dados básicos
         employee = get_object_or_404(User, id=data.employee_id)
         department = get_object_or_404(Department, id=data.department_id)
-
-        # Verifica o tipo de validação (leve ou rígida)
         validation_level = getattr(data, "validation_level", "strict")
 
-        # Calcular totais provisórios para verificação rápida
-        provisional_totals = defaultdict(Decimal)
-        for task in data.tasks:
-            provisional_totals[task.created_at] += Decimal(str(task.hour))
-
-        # Verificação rápida de limites
-        if validation_level == "strict":
-            for task_date, hours in provisional_totals.items():
-                if hours > TimesheetValidator.MAX_HOURS_PER_DAY:
-                    return 400, {
-                        "error": f"Total diário excedido",
-                        "detail": f"Dia {task_date}: {float(hours)}h > {TimesheetValidator.MAX_HOURS_PER_DAY}h",
-                        "field": "tasks"
-                    }
-
-        # Usar validador centralizado
+        # Validação
         is_valid, daily_totals, warnings = TimesheetValidator.validate_timesheet_data(
-            data.dict(), employee_id=data.employee_id
+            data.model_dump(), employee_id=data.employee_id
         )
 
-        print(f"✅ Validação passou. force_confirm={data.force_confirm}, warnings={len(warnings)}")
+        if validation_level == "strict" and warnings and not data.force_confirm:
+            return 207, {
+                "warnings": warnings,
+                "requires_confirmation": True,
+                "daily_totals": {str(k): float(v) for k, v in daily_totals.items()},
+                "message": "Alerta de horas. Confirme para prosseguir."
+            }
 
-        if validation_level == "strict":
-            # Se houver avisos e não for confirmação forçada
-            if warnings and not data.force_confirm:
-                # Determinar tipo de warning
-                if any("superior às 8h normais" in w for w in warnings):
-                    message = "⚠️ Total diário superior às 8h normais. Confirme para prosseguir."
-                elif any("excede 8 horas" in w for w in warnings):
-                    message = "⚠️ Algumas tarefas excedem 8 horas individuais. Confirme para prosseguir."
-                elif any("mínimo recomendado" in w for w in warnings):
-                    message = "⚠️ Alguns dias têm menos de 8 horas. Confirme para prosseguir."
-                else:
-                    message = "⚠️ Alerta de horas. Confirme para prosseguir."
-
-                return 207, {
-                    "warnings": warnings,
-                    "requires_confirmation": True,
-                    "daily_totals": {str(k): float(v) for k, v in daily_totals.items()},
-                    "message": message,
-                    "validation_summary": {
-                        "max_hours_per_day": float(TimesheetValidator.MAX_HOURS_PER_DAY),
-                        "max_hours_per_task": float(TimesheetValidator.MAX_HOURS_PER_TASK),
-                        "max_retroactive_days": TimesheetValidator.MAX_RETROACTIVE_DAYS
-                    }
-                }
-
-        # ⚠️ ADICIONE LOGS DETALHADOS AQUI PARA DEBUG
-        print(f"🔧 Criando timesheet... force_confirm={data.force_confirm}")
-        print(f"🔧 Employee: {employee.id}, Department: {department.id}")
-        print(f"🔧 Tasks quantidade: {len(data.tasks)}")
-        print(f"🔧 Tasks: {data.tasks}")
-
-        # CRIAR TIMESHEET
         with transaction.atomic():
-            # print("🔧 Iniciando transaction...")
             timesheet = Timesheet.objects.create(
                 employee=employee,
                 department=department,
@@ -571,43 +461,27 @@ def create_timesheet(request, data: TimesheetIn):
                 submitted_by=request.auth,
                 submitted_at=date.today()
             )
-            # print(f"🔧 Timesheet criado: {timesheet.id}")
 
-            for i, task_data in enumerate(data.tasks):
-                # print(f"🔧 Criando task {i + 1}: {task_data}")
-                activity = get_object_or_404(Activity, id=task_data.activity_id)
-                project = get_object_or_404(Project, id=task_data.project_id)
-
-                task = Task.objects.create(
+            for task_data in data.tasks:
+                Task.objects.create(
                     timesheet=timesheet,
-                    activity=activity,
-                    project=project,
+                    activity=get_object_or_404(Activity, id=task_data.activity_id),
+                    project=get_object_or_404(Project, id=task_data.project_id),
                     hour=task_data.hour,
                     created_at=task_data.created_at
                 )
-                # print(f"🔧 Task {i + 1} criada: {task.id}")
-        #
-        # print("✅ Timesheet criado com sucesso!")
-        return 200, TimesheetOut.from_orm(timesheet)
+        
+        return 200, TimesheetOut.model_validate(timesheet)
 
-    except HttpError as e:
-        print(f"❌ HttpError: {e}")
-        raise e
     except Exception as e:
-        #        ⚠️ LOG COMPLETO DO ERRO
-        print(f"❌ ERRO INTERNO: {str(e)}")
-        print(f"❌ Tipo do erro: {type(e)}")
-        import traceback
-        print(f"❌ Traceback: {traceback.format_exc()}")
+        logger.error(f"Erro no endpoint create_timesheet: {str(e)}")
         raise HttpError(500, f"Erro interno: {str(e)}")
 
 
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
-@router.delete("/{id}")
+@router.delete("/timesheets/{id}")
 def delete_timesheet(request, id: int):
     """
-    Exclui uma timesheet com status 'RASCUNHO' se o usuário tiver permissão.
+    Exclui uma timesheet com status 'RASCUNHO' se o usuÃ¡rio tiver permissÃ£o.
     """
     try:
         user = request.auth
@@ -616,54 +490,43 @@ def delete_timesheet(request, id: int):
         timesheet = Timesheet.objects.filter(id=id).select_related('employee').first()
 
         if not timesheet:
-            raise HttpError(404, "Timesheet não encontrada.")
+            raise HttpError(404, "Timesheet nÃ£o encontrada.")
 
-        # Verifica se o usuário tem permissão para excluir
+        # Verifica se o usuÃ¡rio tem permissÃ£o para excluir
         is_gerente = user.groups.filter(name='GESTOR').exists()
         is_chefe = getattr(user, 'department', None) == timesheet.department
 
         if not (is_gerente or is_chefe):
-            raise HttpError(403, "Você não tem permissão para excluir esta timesheet.")
+            raise HttpError(403, "VocÃª nÃ£o tem permissÃ£o para excluir esta timesheet.")
 
-        # Verifica se o status é RASCUNHO
+        # Verifica se o status Ã© RASCUNHO
         if timesheet.status != 'rascunho':
-            raise HttpError(400, "Só é possível excluir timesheets com status 'RASCUNHO'.")
+            raise HttpError(400, "SÃ³ Ã© possÃ­vel excluir timesheets com status 'RASCUNHO'.")
 
         # Excluir
         timesheet.delete()
 
-        return {"detail": "Timesheet excluída com sucesso."}
+        return {"detail": "Timesheet excluÃ­da com sucesso."}
 
     except Exception as e:
         logger.error(f"Erro ao excluir timesheet {id}: {str(e)}")
         raise HttpError(500, "Erro interno ao tentar excluir a timesheet.")
 
 
-###################################################################
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
-@router.get("/departments", response=List[DepartmentOut])
-def get_activities(request):
-    qs = Department.objects.all()
-    return qs
-
-
-
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.get("/departments", response=List[DepartmentOut])
 def list_departments(request):
-    return Department.objects.all()
+    """
+    Lista todos os departamentos ativos.
+    """
+    return Department.objects.filter(is_active=True)
 
 
 #################################### TESTE #########################################
 
 @router.get(
-    "/view/{timesheet_id}",
+    "timesheets/view/{timesheet_id}",
     response={200: TimesheetViewSchema, 403: dict, 404: dict}
 )
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 def get_timesheet_view(request, timesheet_id: int):
     try:
         timesheet = Timesheet.objects.select_related(
@@ -678,7 +541,7 @@ def get_timesheet_view(request, timesheet_id: int):
         if not has_view_permission(request.auth, timesheet):
             return Response({"error": "Permission denied"}, status=403)
 
-        # Gerar dados compatíveis com o schema
+        # Gerar dados compatÃ­veis com o schema
         data = build_timesheet_view_data(timesheet)
 
         # Retornar como Response para garantir compatibilidade com o schema
@@ -689,67 +552,71 @@ def get_timesheet_view(request, timesheet_id: int):
 
 
 @router.post("/{timesheet_id}/comments", response=CommentSchema)
-def add_timesheet_comment(request, timesheet_id: int, comment_data: CommentCreateSchema):
+def add_timesheet_comment(request, timesheet_id: int, data: CommentCreateSchema):
     """
-    Add a comment to a timesheet
+    Adiciona um comentário à timesheet.
     """
-    try:
-        timesheet = Timesheet.objects.get(id=timesheet_id)
+    timesheet = get_object_or_404(Timesheet, id=timesheet_id)
+    service = TimesheetWorkflowService(timesheet)
+    comment = service.add_comment(request.auth, data.content)
+    
+    return CommentSchema.model_validate(comment)
 
-        if not has_comment_permission(request.user, timesheet):
-            return {"error": "Permission denied"}, 403
-
-        comment = TimesheetComment.objects.create(
-            timesheet=timesheet,
-            author=request.user,
-            content=comment_data.content
-        )
-
-        return {
-            "id": comment.id,
-            "author_name": comment.author.get_full_name() or comment.author.username,
-            "content": comment.content,
-            "created_at": comment.created_at
-        }
-
-    except Timesheet.DoesNotExist:
-        return {"error": "Timesheet not found"}, 404
-
-
-@router.patch("/{timesheet_id}/approve")
-def approve_timesheet(request, timesheet_id: int, action_data: TimesheetActionSchema = None):
+@router.post("/{timesheet_id}/approve", response=TimesheetOut)
+def approve_timesheet(request, timesheet_id: int, data: TimesheetReviewIn):
     """
-    Approve a timesheet (manager action)
+    Aprova uma timesheet (total ou parcialmente).
     """
-    return change_timesheet_status(
-        request, timesheet_id, "approved", action_data.notes if action_data else None
+    timesheet = get_object_or_404(Timesheet, id=timesheet_id)
+    service = TimesheetWorkflowService(timesheet)
+    updated_timesheet = service.approve(
+        approver=request.auth,
+        comments=data.notes,
+        task_reviews=data.tasks
     )
+    return TimesheetOut.model_validate(updated_timesheet)
 
-
-@router.patch("/{timesheet_id}/reject")
-def reject_timesheet(request, timesheet_id: int, action_data: TimesheetActionSchema = None):
+@router.post("/{timesheet_id}/reject", response=TimesheetOut)
+def reject_timesheet(request, timesheet_id: int, data: TimesheetReviewIn):
     """
-    Reject a timesheet (manager action)
+    Rejeita totalmente uma timesheet.
     """
-    return change_timesheet_status(
-        request, timesheet_id, "rejected", action_data.notes if action_data else None
+    timesheet = get_object_or_404(Timesheet, id=timesheet_id)
+    service = TimesheetWorkflowService(timesheet)
+    updated_timesheet = service.reject(
+        approver=request.auth,
+        reason=data.notes
     )
+    return TimesheetOut.model_validate(updated_timesheet)
 
-
-@router.patch("/{timesheet_id}/request-changes")
-def request_timesheet_changes(request, timesheet_id: int, action_data: TimesheetActionSchema = None):
+@router.post("/{timesheet_id}/request-changes", response=TimesheetOut)
+def request_timesheet_changes(request, timesheet_id: int, data: TimesheetReviewIn):
     """
-    Request changes for a timesheet (manager action)
+    Solicita alterações na timesheet.
     """
-    return change_timesheet_status(
-        request, timesheet_id, "changes_requested", action_data.notes if action_data else None
+    timesheet = get_object_or_404(Timesheet, id=timesheet_id)
+    service = TimesheetWorkflowService(timesheet)
+    updated_timesheet = service.request_changes(
+        approver=request.auth,
+        comments=data.notes
     )
+    return TimesheetOut.model_validate(updated_timesheet)
+
+@router.post("/{timesheet_id}/submit", response=TimesheetOut)
+def submit_timesheet(request, timesheet_id: int):
+    """
+    Submete a timesheet para aprovação.
+    """
+    timesheet = get_object_or_404(Timesheet, id=timesheet_id)
+    service = TimesheetWorkflowService(timesheet)
+    updated_timesheet = service.submit_for_approval(submitted_by=request.auth)
+    return TimesheetOut.model_validate(updated_timesheet)
 
 
 def has_view_permission(user, timesheet):
     print(user, "init ...")
     try:
-        # Superusuário tem acesso total
+        # SuperusuÃ¡rio tem acesso total
         if user.is_superuser:
             return True
 
@@ -757,11 +624,11 @@ def has_view_permission(user, timesheet):
         if user.groups.filter(name='ADMINISTRADOR').exists():
             return True
 
-        # DIREÇÃO - acesso total
-        if user.groups.filter(name='DIREÇÃO').exists():
+        # DIREÃ‡ÃƒO - acesso total
+        if user.groups.filter(name='DIREÃ‡ÃƒO').exists():
             return True
 
-        # O proprietário sempre pode ver sua própria timesheet
+        # O proprietÃ¡rio sempre pode ver sua prÃ³pria timesheet
         if timesheet.user == user:
             return True
 
@@ -778,66 +645,10 @@ def has_view_permission(user, timesheet):
         return False
 
     except Exception:
-        # Em caso de erro, nega por segurança
+        # Em caso de erro, nega por seguranÃ§a
         return False
 
 
-def has_comment_permission(user, timesheet):
-    """
-    Check if user can comment on timesheet
-    """
-    # Gerentes podem comentar em timesheets do seu departamento
-    if user.is_manager and user.department == timesheet.department:
-        return True
-
-    # Admin pode comentar em tudo
-    if user.is_superuser:
-        return True
-
-    return False
-
-
-def has_approval_permission(user, timesheet):
-    """
-    Check if user can approve/reject timesheet
-    """
-    # Apenas gerentes do mesmo departamento podem aprovar
-    if user.is_manager and user.department == timesheet.department:
-        return True
-
-    # Admin pode aprovar tudo
-    if user.is_superuser:
-        return True
-
-    return False
-
-
-def change_timesheet_status(request, timesheet_id, new_status, notes=None):
-    """
-    Helper function to change timesheet status
-    """
-    try:
-        timesheet = Timesheet.objects.get(id=timesheet_id)
-
-        if not has_approval_permission(request.user, timesheet):
-            return {"error": "Permission denied"}, 403
-
-        # Registrar mudança de status
-        timesheet.status_changes.create(
-            old_status=timesheet.status,
-            new_status=new_status,
-            changed_by=request.user,
-            notes=notes
-        )
-
-        # Atualizar status
-        timesheet.status = new_status
-        timesheet.save()
-
-        return {"success": True, "message": f"Timesheet {new_status} successfully"}
-
-    except Timesheet.DoesNotExist:
-        return {"error": "Timesheet not found"}, 404
 
 
 def build_timesheet_view_data(timesheet):
@@ -846,7 +657,7 @@ def build_timesheet_view_data(timesheet):
     """
     tasks = timesheet.tasks.select_related('project', 'activity').all()
 
-    # Calcular métricas básicas
+    # Calcular mÃ©tricas bÃ¡sicas
     total_hours = sum(task.hour for task in tasks)
     work_days = len(set(task.created_at for task in tasks))
     task_count = tasks.count()
@@ -874,7 +685,7 @@ def build_timesheet_view_data(timesheet):
         for item in hours_by_project
     ]
 
-    # Analytics - Horas diárias
+    # Analytics - Horas diÃ¡rias
     daily_hours = tasks.values('created_at').annotate(
         daily_total=Sum('hour')
     ).order_by('created_at')
@@ -897,7 +708,7 @@ def build_timesheet_view_data(timesheet):
         for item in hours_by_project
     ]
 
-    # Comentários
+    # ComentÃ¡rios
     comments = [
         {
             "id": comment.id,
@@ -908,7 +719,7 @@ def build_timesheet_view_data(timesheet):
         for comment in timesheet.comments.all().order_by('-created_at')
     ]
 
-    # Histórico de status
+    # HistÃ³rico de status
     status_history = [
         {
             "status": change.new_status,
@@ -920,7 +731,7 @@ def build_timesheet_view_data(timesheet):
     ]
 
     return {
-        # Informações básicas
+        # InformaÃ§Ãµes bÃ¡sicas
         "id": timesheet.id,
         "employee_name": timesheet.employee.get_full_name() or timesheet.employee.username,
         "department_name": timesheet.department.name,
@@ -928,13 +739,13 @@ def build_timesheet_view_data(timesheet):
         # "period": f"{timesheet.start_date} to {timesheet.end_date}",
         "submitted_at": timesheet.submitted_at.strftime('%d-%m-%Y'),
 
-        # Métricas
+        # MÃ©tricas
         "total_hours": float(total_hours),
         "work_days": work_days,
         "task_count": task_count,
         "daily_average": round(daily_average, 2),
 
-        # Conteúdo
+        # ConteÃºdo
         "obs": timesheet.obs,
         "tasks": [
             {
@@ -953,7 +764,7 @@ def build_timesheet_view_data(timesheet):
         "daily_hours": daily_hours_data,
         "project_breakdown": project_breakdown,
 
-        # Histórico e comentários
+        # HistÃ³rico e comentÃ¡rios
         "status_history": status_history,
         "comments": comments,
     }
@@ -962,9 +773,7 @@ def build_timesheet_view_data(timesheet):
 ########################### EXPORT ################################################
 
 
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
-@router.get("/{timesheet_id}/export-pdf")
+@router.get("timesheets/{timesheet_id}/export-pdf")
 def export_timesheet_pdf(request, timesheet_id: int):
     try:
         timesheet = Timesheet.objects.get(id=timesheet_id)
@@ -993,7 +802,7 @@ def export_timesheet_pdf(request, timesheet_id: int):
         logo_path = os.path.join(settings.MEDIA_ROOT, 'logo.png')
         logo_exists = os.path.isfile(logo_path)
 
-        # Se não encontrar na raiz do media, tenta em subpastas
+        # Se nÃ£o encontrar na raiz do media, tenta em subpastas
         if not logo_exists:
             logo_path = os.path.join(settings.MEDIA_ROOT, 'logos', 'logo.png')
             logo_exists = os.path.isfile(logo_path)
@@ -1001,7 +810,7 @@ def export_timesheet_pdf(request, timesheet_id: int):
         # ---------- Buffer e documento ----------
         buffer = io.BytesIO()
 
-        # Margens generosas para header/rodapé
+        # Margens generosas para header/rodapÃ©
         left, right, top, bottom = 72, 72, 110, 90
         doc = BaseDocTemplate(
             buffer, pagesize=A4,
@@ -1009,23 +818,23 @@ def export_timesheet_pdf(request, timesheet_id: int):
             topMargin=top, bottomMargin=bottom
         )
 
-        # Área útil (frame) onde o conteúdo entra (exclui header/footer)
+        # Ãrea Ãºtil (frame) onde o conteÃºdo entra (exclui header/footer)
         frame = Frame(doc.leftMargin, doc.bottomMargin,
                       doc.width, doc.height, id='normal')
 
-        # ---------- Funções de desenho ----------
+        # ---------- FunÃ§Ãµes de desenho ----------
         def draw_header(canvas, doc_):
             page_w, page_h = A4
 
-            # Logo - posição ajustada
+            # Logo - posiÃ§Ã£o ajustada
             if logo_exists:
                 try:
                     # Posiciona o logo no canto superior esquerdo
                     canvas.drawImage(
                         logo_path,
-                        doc_.leftMargin, page_h - top + 15,  # Ajuste na posição Y
+                        doc_.leftMargin, page_h - top + 15,  # Ajuste na posiÃ§Ã£o Y
                         width=120,
-                        height=40,  # Altura um pouco maior para melhor proporção
+                        height=40,  # Altura um pouco maior para melhor proporÃ§Ã£o
                         preserveAspectRatio=True,
                         mask='auto'
                     )
@@ -1035,12 +844,12 @@ def export_timesheet_pdf(request, timesheet_id: int):
                     canvas.setFont("Helvetica", 8)
                     canvas.drawString(doc_.leftMargin, page_h - top + 25, f"[Logo error: {e}]")
 
-            # Título do documento no header (lado direito)
+            # TÃ­tulo do documento no header (lado direito)
             canvas.setFillColor(BRAND_PRIMARY)
             canvas.setFont("Helvetica-Bold", 14)
             canvas.drawRightString(page_w - doc_.rightMargin, page_h - top + 30, "TIMESHEET")
 
-            # Linha divisória sob o header
+            # Linha divisÃ³ria sob o header
             canvas.setStrokeColor(BRAND_PRIMARY)
             canvas.setLineWidth(1)
             y_line = page_h - top + 10  # Linha mais abaixo
@@ -1060,7 +869,7 @@ def export_timesheet_pdf(request, timesheet_id: int):
             #     super().showPage()
 
             def save(self):
-                # Contar páginas
+                # Contar pÃ¡ginas
                 num_pages = len(self._saved_page_states)
                 for state in self._saved_page_states:
                     self.__dict__.update(state)
@@ -1072,9 +881,9 @@ def export_timesheet_pdf(request, timesheet_id: int):
                 page_w, page_h = A4
                 left = 72
                 right = page_w - 72
-                base_y = 40  # Altura do rodapé
+                base_y = 40  # Altura do rodapÃ©
 
-                # Linha acima do rodapé
+                # Linha acima do rodapÃ©
                 self.setStrokeColor(self.brand_primary)
                 self.setLineWidth(1)
                 self.line(left, base_y + 25, right, base_y + 25)
@@ -1103,17 +912,17 @@ def export_timesheet_pdf(request, timesheet_id: int):
                 if address:
                     self.drawString(left, y_offset, f"End: {address}")
 
-                # Página X de Y (lado direito)
+                # PÃ¡gina X de Y (lado direito)
                 self.setFont("Helvetica-Bold", 9)
-                page_label = f"Página {self._pageNumber} de {total_pages}"
+                page_label = f"PÃ¡gina {self._pageNumber} de {total_pages}"
                 self.drawRightString(right, base_y + 15, page_label)
 
-                # Data de geração
+                # Data de geraÃ§Ã£o
                 self.setFont("Helvetica", 8)
                 date_label = f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
                 self.drawRightString(right, base_y + 5, date_label)
 
-        # PageTemplate com header a cada página
+        # PageTemplate com header a cada pÃ¡gina
         template = PageTemplate(id='with-header', frames=frame, onPage=draw_header)
         doc.addPageTemplates([template])
 
@@ -1137,27 +946,27 @@ def export_timesheet_pdf(request, timesheet_id: int):
             fontSize=12
         )
 
-        # ---------- Conteúdo ----------
+        # ---------- ConteÃºdo ----------
         story = []
 
-        # Título principal (centralizado)
-        story.append(Paragraph("RELATÓRIO DE TIMESHEET", title_style))
+        # TÃ­tulo principal (centralizado)
+        story.append(Paragraph("RELATÃ“RIO DE TIMESHEET", title_style))
         story.append(Spacer(1, 10))
 
-        # Informações do colaborador
+        # InformaÃ§Ãµes do colaborador
         employee_info = Paragraph(
             f"<b>Colaborador:</b> {timesheet.employee.get_full_name()}",
             styles['Normal']
         )
         story.append(employee_info)
 
-        # Tabela de informações
+        # Tabela de informaÃ§Ãµes
         total_horas = sum(t.hour for t in timesheet.tasks.all())
         info_data = [
             ['Departamento:', timesheet.department.name],
             ['Status:', timesheet.status.upper()],
             ['Total de Horas:', f"{total_horas:.1f}h"],
-            # ['Período:', f"{timesheet.start_date} a {timesheet.end_date}"],
+            # ['PerÃ­odo:', f"{timesheet.start_date} a {timesheet.end_date}"],
             ['Submetido em:', timesheet.submitted_at.strftime('%d/%m/%Y %H:%M')]
         ]
 
@@ -1179,7 +988,7 @@ def export_timesheet_pdf(request, timesheet_id: int):
         tasks = timesheet.tasks.select_related('project', 'activity').all()
 
         if tasks.exists():
-            # Cabeçalho da tabela
+            # CabeÃ§alho da tabela
             data = [['Data', 'Projeto', 'Atividade', 'Horas']]
 
             # Dados das tarefas
@@ -1195,7 +1004,7 @@ def export_timesheet_pdf(request, timesheet_id: int):
             tbl = Table(
                 data,
                 colWidths=[0.9 * inch, 2.5 * inch, 2.0 * inch, 0.6 * inch],
-                repeatRows=1  # Repete cabeçalho em todas as páginas
+                repeatRows=1  # Repete cabeÃ§alho em todas as pÃ¡ginas
             )
 
             tbl.setStyle(TableStyle([
@@ -1212,10 +1021,10 @@ def export_timesheet_pdf(request, timesheet_id: int):
         else:
             story.append(Paragraph("Nenhuma tarefa registrada.", styles['Normal']))
 
-        # Observações
+        # ObservaÃ§Ãµes
         if getattr(timesheet, 'obs', None) and timesheet.obs.strip():
             story.append(Spacer(1, 20))
-            story.append(Paragraph("Observações", h2_style))
+            story.append(Paragraph("ObservaÃ§Ãµes", h2_style))
             story.append(Paragraph(timesheet.obs, styles['Normal']))
 
         # ---------- Build com canvas numerado ----------
@@ -1253,7 +1062,7 @@ def export_timesheet_pdf(request, timesheet_id: int):
         return {"error": "Erro interno ao gerar PDF"}, 500
 
 
-@router.get("/{timesheet_id}/export-excel")
+@router.get("timesheets/{timesheet_id}/export-excel")
 def export_timesheet_excel(request, timesheet_id: int):
     """
     Export timesheet to Excel
@@ -1268,9 +1077,9 @@ def export_timesheet_excel(request, timesheet_id: int):
         output = io.BytesIO()
 
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            # Sheet de informações básicas
+            # Sheet de informaÃ§Ãµes bÃ¡sicas
             info_data = {
-                'Campo': ['Funcionário', 'Departamento', 'Status', 'Total de Horas', 'Submetido em'],
+                'Campo': ['FuncionÃ¡rio', 'Departamento', 'Status', 'Total de Horas', 'Submetido em'],
                 'Valor': [
                     timesheet.employee.get_full_name(),
                     timesheet.department.name,
@@ -1281,7 +1090,7 @@ def export_timesheet_excel(request, timesheet_id: int):
                 ]
             }
             info_df = pd.DataFrame(info_data)
-            info_df.to_excel(writer, sheet_name='Informações', index=False)
+            info_df.to_excel(writer, sheet_name='InformaÃ§Ãµes', index=False)
 
             # Sheet de tarefas
             tasks = timesheet.tasks.select_related('project', 'activity').all()
@@ -1293,7 +1102,7 @@ def export_timesheet_excel(request, timesheet_id: int):
                     'Projeto': task.project.name,
                     'Atividade': task.activity.name,
                     'Horas': task.hour,
-                    # 'Descrição': task.description or ''
+                    # 'DescriÃ§Ã£o': task.description or ''
                 })
 
             if tasks_data:
@@ -1328,15 +1137,14 @@ def export_timesheet_excel(request, timesheet_id: int):
     except Timesheet.DoesNotExist:
         return {"error": "Timesheet not found"}, 404
     except Exception as e:
-        print(f"Erro ao gerar Excel: {str(e)}")
+        logger.error(f"Erro ao gerar Excel: {str(e)}")
         return {"error": "Erro interno ao gerar Excel"}, 500
 
 
 
 
 
-# @authentication_classes([JWTAuthentication])
-# @permission_classes([IsAuthenticated])
+
 # @api.get("timesheets/export", response={200: bytes, 400: dict})
 # def export_timesheets(
 #     request,
@@ -1355,7 +1163,7 @@ def export_timesheet_excel(request, timesheet_id: int):
 #     Export timesheets to Excel, CSV or PDF
 #     """
 #     try:
-#         # Usa filter() para múltiplos IDs
+#         # Usa filter() para mÃºltiplos IDs
 #         timesheets = Timesheet.objects.filter(id__in=timesheet_ids)
 #
 #         # Valida se encontrou algum timesheet
@@ -1389,15 +1197,10 @@ def export_timesheet_excel(request, timesheet_id: int):
 
 
 ################################################################################
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.post("timesheetsw33-export123")
 def export_timesheets12(request, payload: ExportRequest):  # ✅ Recebe o schema
     timesheet_ids = payload.timesheet_ids
     format = payload.format
-
-    print(timesheet_ids, "IDs recebidos")
-    print(format, "Formato recebido")
 
     return {"ids": timesheet_ids, "format": format}
 
@@ -1409,8 +1212,6 @@ import io
 
 
 
-# @authentication_classes([JWTAuthentication])
-# @permission_classes([IsAuthenticated])
 # @api.post("timesheets-export")
 # def export_timesheets(request, payload: ExportRequest):
 #     timesheet_ids = payload.timesheet_ids
@@ -1452,7 +1253,7 @@ import io
 #
 #     df = pd.DataFrame(data)
 #
-#     # Criar arquivo Excel em memória
+#     # Criar arquivo Excel em memÃ³ria
 #     output = io.BytesIO()
 #     with pd.ExcelWriter(output, engine='openpyxl') as writer:
 #         df.to_excel(writer, sheet_name='Timesheets', index=False)
@@ -1469,18 +1270,26 @@ import io
 
 
 
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.post("timesheets-export")
 def export_timesheets(request, payload: ExportRequest):
     timesheet_ids = payload.timesheet_ids
     format = payload.format
 
-    print(f"Exportando {len(timesheet_ids)} timesheets como {format}")
 
-    # Buscar timesheets com todos os relacionamentos
-    timesheets = Timesheet.objects.filter(id__in=timesheet_ids) \
-        .select_related('employee', 'department') \
+    # 🔐 SEGURANÇA: Filtrar por permissão (Prevenir IDOR)
+    user = request.auth
+    queryset = Timesheet.objects.filter(id__in=timesheet_ids)
+
+    if not user.is_administrator:
+        # Se for Manager, pode ver do seu departamento
+        user_department = getattr(user, 'department', None)
+        if user_department and user_department.can_be_approved_by(user):
+             queryset = queryset.filter(department=user_department)
+        else:
+             # Caso contrário, apenas os seus próprios
+             queryset = queryset.filter(employee=user)
+
+    timesheets = queryset.select_related('employee', 'department') \
         .prefetch_related(
         Prefetch('tasks', queryset=Task.objects.select_related('project', 'activity'))
     ) \
@@ -1542,7 +1351,7 @@ def generate_complete_excel_export(timesheets):
                 'Is_Weekend': task.created_at.weekday() >= 5,
             })
 
-    # Criar arquivo Excel com múltiplas abas
+    # Criar arquivo Excel com mÃºltiplas abas
     output = io.BytesIO()
 
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -1614,7 +1423,7 @@ def generate_complete_csv_export(timesheets):
                 'Task Updated At': task.updated_at,
             })
 
-    # Para CSV, você pode retornar os timesheets ou tasks
+    # Para CSV, vocÃª pode retornar os timesheets ou tasks
     # Ou criar um arquivo ZIP com ambos
     df_timesheets = pd.DataFrame(timesheet_data)
     csv_output = df_timesheets.to_csv(index=False)
@@ -1624,30 +1433,27 @@ def generate_complete_csv_export(timesheets):
     return response
 
 
-# core/timesheet/api.py (ADICIONAR)
-
-
-@router.post("/timesheets/validate", response={200: dict, 400: dict})
+@router.post("/validate", response={200: dict, 400: dict})
 def validate_timesheet_preview(request, data: TimesheetIn):
     """
-    Valida uma timesheet SEM criá-la
-    Útil para frontend mostrar preview com validações
+    Valida uma timesheet SEM criÃ¡-la.
+    Ãštil para o frontend mostrar um preview com validaÃ§Ãµes em tempo real.
     """
     try:
         employee = get_object_or_404(User, id=data.employee_id)
 
-        # Executar validação completa
+        # Executar validaÃ§Ã£o completa
         is_valid, daily_totals, warnings = TimesheetValidator.validate_timesheet_data(
-            data.dict(), employee_id=data.employee_id
+            data.model_dump(), employee_id=data.employee_id
         )
 
-        # Calcular totais agregados
+        # Calcular totais agregados (com outros timesheets)
         aggregated_totals = {}
         for task_date, new_hours in daily_totals.items():
             total_daily = TimesheetValidator._get_aggregated_daily_total(
                 data.employee_id,
                 task_date,
-                None,  # Não excluir nenhuma timesheet
+                None,  # NÃ£o excluir nenhuma timesheet
                 new_hours
             )
             aggregated_totals[str(task_date)] = float(total_daily)
@@ -1674,4 +1480,5 @@ def validate_timesheet_preview(request, data: TimesheetIn):
     except HttpError as e:
         raise e
     except Exception as e:
-        raise HttpError(500, f"Erro na validação: {str(e)}")
+        logger.error(f"Erro na validaÃ§Ã£o (preview): {str(e)}")
+        raise HttpError(500, f"Erro na validaÃ§Ã£o: {str(e)}")

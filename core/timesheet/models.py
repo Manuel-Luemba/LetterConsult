@@ -1,4 +1,4 @@
-from datetime import datetime
+﻿from datetime import datetime
 from django.db import models
 from app import settings
 from core.activity.models import Activity
@@ -15,8 +15,17 @@ class Task(models.Model):
     activity = models.ForeignKey(Activity, on_delete=models.CASCADE, null=True)
     hour = models.DecimalField(blank=True, null=True, verbose_name='Hora', decimal_places=2, max_digits=5)
     created_at = models.DateField(verbose_name='Data em que o trabalho foi realizado', blank=True, null=True)
-    #task_date = models.DateField(auto_now_add=True, verbose_name='Data de criação', blank=True, null=True)
-    updated_at = models.DateField(auto_now=True, verbose_name='Data de atualização', blank=True, null=True)
+    #task_date = models.DateField(auto_now_add=True, verbose_name='Data de criaÃ§Ã£o', blank=True, null=True)
+    updated_at = models.DateField(auto_now=True, verbose_name='Data de atualizaÃ§Ã£o', blank=True, null=True)
+
+    TASK_STATUS = [
+        ('pending', 'Pendente'),
+        ('approved', 'Aprovado'),
+        ('rejected', 'Rejeitado'),
+        ('needs_improvement', 'SugestÃ£o de Melhoria'),
+    ]
+    status = models.CharField(max_length=20, choices=TASK_STATUS, default='pending', verbose_name='Estado')
+    review_comment = models.TextField(blank=True, null=True, verbose_name='ComentÃ¡rio da RevisÃ£o')
 
     class Meta:
         verbose_name = 'Tarefa'
@@ -27,19 +36,19 @@ class Task(models.Model):
         )
 
     def save(self, *args, **kwargs):
-        """Salva a tarefa com validações"""
-        # Impede modificações em timesheets submetidos
+        """Salva a tarefa com validaÃ§Ãµes"""
+        # Impede modificaÃ§Ãµes em timesheets submetidos
         if self.pk and self.timesheet_id and self.timesheet.status == 'submetido':
-            raise ValidationError("Não é possível modificar tarefas de um timesheet já submetido.")
+            raise ValidationError("NÃ£o Ã© possÃ­vel modificar tarefas de um timesheet jÃ¡ submetido.")
 
-        # ⚠️ CORREÇÃO: Só define created_at se não for fornecido
+        # âš ï¸ CORREÃ‡ÃƒO: SÃ³ define created_at se nÃ£o for fornecido
         if not self.pk and not self.created_at:
             self.created_at = datetime.now().date()
 
-        # ⚠️ ADICIONE VALIDAÇÃO DE DATA FUTURA
+        # âš ï¸ ADICIONE VALIDAÃ‡ÃƒO DE DATA FUTURA
         if self.created_at and self.created_at > datetime.now().date():
             raise ValidationError({
-                'created_at': 'A data da tarefa não pode ser futura.'
+                'created_at': 'A data da tarefa nÃ£o pode ser futura.'
             })
         super().save(*args, **kwargs)
 
@@ -48,30 +57,30 @@ class Task(models.Model):
             self.timesheet.save()
 
     def delete(self, *args, **kwargs):
-        # ⚠️ CORREÇÃO: Mantém a restrição de exclusão para timesheets submetidos
+        # âš ï¸ CORREÃ‡ÃƒO: MantÃ©m a restriÃ§Ã£o de exclusÃ£o para timesheets submetidos
         if self.timesheet.status == 'submetido':
-            raise ValidationError("Não é possível excluir tarefas de um timesheet já submetido.")
+            raise ValidationError("NÃ£o Ã© possÃ­vel excluir tarefas de um timesheet jÃ¡ submetido.")
         timesheet = self.timesheet
         super().delete(*args, **kwargs)
 
-        # Atualiza o total de horas do timesheet após exclusão
+        # Atualiza o total de horas do timesheet apÃ³s exclusÃ£o
         timesheet.save()
 
     def clean(self):
-        """Validações da tarefa"""
-        # Valida se as horas são positivas se preenchidas
+        """ValidaÃ§Ãµes da tarefa"""
+        # Valida se as horas sÃ£o positivas se preenchidas
         if self.hour is not None and float(self.hour) <= 0:
             raise ValidationError({
                 'hour': 'A hora total deve ser maior que zero.'
             })
 
-        # Valida se não excede um limite razoável
+        # Valida se nÃ£o excede um limite razoÃ¡vel
         if self.hour is not None and float(self.hour) > 16:
             raise ValidationError({
-                'hour': 'A hora total não pode exceder 16 horas.'
+                'hour': 'A hora total nÃ£o pode exceder 16 horas.'
             })
 
-        # Valida se a tarefa não é duplicada no mesmo timesheet
+        # Valida se a tarefa nÃ£o Ã© duplicada no mesmo timesheet
         if self.pk is None:  # Apenas para novas tarefas
             duplicate = Task.objects.filter(
                 timesheet=self.timesheet,
@@ -81,8 +90,16 @@ class Task(models.Model):
 
             if duplicate:
                 raise ValidationError(
-                    'Já existe uma tarefa com este projeto e atividade no timesheet.'
+                    'JÃ¡ existe uma tarefa com este projeto e atividade no timesheet.'
                 )
+
+    @property
+    def project_name(self):
+        return self.project.name if self.project else "N/A"
+
+    @property
+    def activity_name(self):
+        return self.activity.name if self.activity else "N/A"
 
     def __str__(self):
         project_name = getattr(self.project, 'name', str(self.project))
@@ -93,19 +110,25 @@ class Timesheet(models.Model):
     STATUS = [
         ('rascunho', 'Rascunho'),
         ('submetido', 'Submetido'),
+        ('em_revisao', 'Em RevisÃ£o'),
+        ('aprovado', 'Aprovado'),
+        ('com_sugestoes', 'Com SugestÃµes'),
+        ('com_rejeitadas', 'Com Rejeitadas'),
     ]
     employee = models.ForeignKey(User, on_delete=models.PROTECT,related_name='timesheets', verbose_name='Colaborador')
     department = models.ForeignKey(Department, on_delete=models.PROTECT, verbose_name='Departamento')
     status = models.CharField(max_length=30, choices=STATUS, verbose_name='Estado', blank=True)
-    # description = models.CharField(max_length=255, verbose_name='Descrição', null=True, blank=True)
-    obs = models.TextField(verbose_name='Observação', null=True, blank=True)
+    # description = models.CharField(max_length=255, verbose_name='DescriÃ§Ã£o', null=True, blank=True)
+    obs = models.TextField(verbose_name='ObservaÃ§Ã£o', null=True, blank=True)
     total_hour = models.DecimalField(blank=True, null=True, verbose_name='Total de horas', decimal_places=2,
                                      max_digits=5)
 
-    created_at = models.DateField(auto_now_add=True, verbose_name='Data de criação', null=True, blank=True)
-    updated_at = models.DateField(auto_now=True, verbose_name='Data de atualização')
-    submitted_at = models.DateField(verbose_name='Data de submissão', null=True)
+    created_at = models.DateField(auto_now_add=True, verbose_name='Data de criaÃ§Ã£o', null=True, blank=True)
+    updated_at = models.DateField(auto_now=True, verbose_name='Data de atualizaÃ§Ã£o')
+    submitted_at = models.DateField(verbose_name='Data de submissÃ£o', null=True)
     submitted_by = models.ForeignKey(User, on_delete=models.PROTECT, verbose_name='Submetido por', null=True, blank=True, related_name='submitted_timesheets')
+    locked_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='locked_timesheets', verbose_name='Trancado por')
+    locked_at = models.DateTimeField(null=True, blank=True, verbose_name='Trancado em')
 
     def __str__(self):
         employee_name = self.employee.get_full_name() if self.employee else 'Sem colaborador'
@@ -120,6 +143,10 @@ class Timesheet(models.Model):
     @property
     def department_name(self):
         return self.department.name
+
+    @property
+    def locked_by_name(self):
+        return self.locked_by.get_full_name() if self.locked_by else None
 
     def calculate_total_hours(self):
         return self.tasks.aggregate(total=models.Sum('hour'))['total'] or 0
@@ -136,7 +163,7 @@ class Timesheet(models.Model):
         if self.pk:
             self.total_hour = self.calculate_total_hours()
 
-        # Para novos registros, já salvamos acima
+        # Para novos registros, jÃ¡ salvamos acima
         if not is_new:
             super().save(*args, **kwargs)
 
@@ -144,18 +171,18 @@ class Timesheet(models.Model):
         return dict(self.STATUS).get(self.status,'Desconhecido')
 
     def clean(self):
-        """Validações do modelo"""
+        """ValidaÃ§Ãµes do modelo"""
         if self.status == 'submetido' and self.pk:
             # Verifica se tem tarefas antes de submeter
             if self.tasks.count() == 0:
-                raise ValidationError("Não é possível submeter um timesheet sem tarefas.")
+                raise ValidationError("NÃ£o Ã© possÃ­vel submeter um timesheet sem tarefas.")
 
-            # Verifica se todas as tarefas têm horas preenchidas
+            # Verifica se todas as tarefas tÃªm horas preenchidas
             invalid_tasks = self.tasks.filter(hour__isnull=True)
             if invalid_tasks.exists():
                 raise ValidationError("Todas as tarefas devem ter horas preenchidas antes de submeter.")
 
-            # Opcional: validar horas válidas
+            # Opcional: validar horas vÃ¡lidas
             if self.tasks.filter(hour__lte=0).exists():
                 raise ValidationError("As horas das tarefas devem ser maiores que zero.")
 
@@ -163,7 +190,7 @@ class Timesheet(models.Model):
 
     def can_add_task(self):
         """ Verifica se pode adicionar mais tarefas (limite opcional) """
-        return self.status == 'rascunho'
+        return self.status in ('rascunho', 'com_sugestoes', 'com_rejeitadas')
 
     def can_remove_task(self):
         """ Verifica se pode remover tarefas """
@@ -171,14 +198,14 @@ class Timesheet(models.Model):
 
     def can_edit(self):
         """ Verifica se o timesheet pode ser editado """
-        return self.status == 'rascunho'
+        return self.status in ('rascunho', 'com_sugestoes', 'com_rejeitadas')
 
     def submit(self):
-        """ Método para submeter o timesheet """
+        """ MÃ©todo para submeter o timesheet """
         if not self.can_edit():
-            raise ValidationError("Timesheet já foi submetido e não pode ser alterado.")
+            raise ValidationError("Timesheet jÃ¡ foi submetido e nÃ£o pode ser alterado.")
 
-        # Executa as validações do clean()
+        # Executa as validaÃ§Ãµes do clean()
         self.full_clean()
         self.submitted_at = datetime.now().date()
 
@@ -188,7 +215,7 @@ class Timesheet(models.Model):
 
 
     def reopen(self):
-        """Método para reabrir um timesheet submetido (se necessário)"""
+        """MÃ©todo para reabrir um timesheet submetido (se necessÃ¡rio)"""
         if self.status == 'submetido':
             self.status = 'rascunho'
             self.save()

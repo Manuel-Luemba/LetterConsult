@@ -1,8 +1,4 @@
-import os
 from typing import List
-from datetime import datetime
-
-from django.contrib.auth import authenticate
 from django.core.paginator import Paginator
 from django.http import FileResponse
 from django.shortcuts import get_object_or_404
@@ -10,29 +6,29 @@ from django.shortcuts import get_object_or_404
 from ninja import Router, UploadedFile, File
 from ninja.errors import HttpError
 
-from rest_framework.decorators import authentication_classes, permission_classes
-from rest_framework.permissions import IsAuthenticated
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework_simplejwt.tokens import RefreshToken
-
-from app import settings
-from core.requisition.services.notification_service import logger
 from core.user.models import User
 from core.user.schema import (
     AuthOutput, AuthInput, ChangePasswordIn,
     UserCreateIn, UserUpdateIn,
     PaginatedUserResponse, UserOut, UserSchema
 )
+from core.login.jwt_auth import JWTAuth
+from django.contrib.auth import authenticate
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.conf import settings
+import logging
+import os
 
-router = Router(tags=["Users"])
+logger = logging.getLogger(__name__)
 
+router = Router(tags=["Users"], auth=JWTAuth())
+
+def check_admin(request):
+    if not getattr(request.auth, 'is_administrator', False):
+        raise HttpError(403, "Apenas administradores podem executar esta ação.")
 
 # ========== HELPER PARA GRUPOS ==========
 def resolve_group_ids(data: dict):
-    """
-    Aceita tanto group_ids (preferido) como groups (legado).
-    Retorna None se nenhum dos dois for enviado.
-    """
     if "group_ids" in data and data["group_ids"] is not None:
         return data["group_ids"]
     if "groups" in data and data["groups"] is not None:
@@ -57,6 +53,7 @@ def login(request, data: AuthInput):
 # ========== GET ALL USERS (SEM PAGINAÇÃO) ==========
 @router.get("", response=List[UserOut])
 def get_users(request):
+    # Nota: Este endpoint pode ser usado por qualquer utilizador autenticado para sugestões/dropdowns
     users = User.objects.select_related("department", "position")
     return [UserOut.from_orm(user) for user in users]
 
@@ -65,8 +62,8 @@ def get_users(request):
 @router.get("/profile", response=UserSchema)
 def get_user_profile(request):
     user = request.auth
-    if not user or not hasattr(user, "email"):
-        return {"detail": "Usuário não autenticado"}, 401
+    if not user:
+        raise HttpError(401, "Usuário não autenticado")
     return UserSchema.from_orm(user)
 
 
@@ -74,6 +71,11 @@ def get_user_profile(request):
 @router.post("/{user_id}/change-password")
 def change_password(request, user_id: int, payload: ChangePasswordIn):
     user = get_object_or_404(User, id=user_id)
+    current_user = request.auth
+
+    # Segurança: Apenas o próprio utilizador ou um administrador pode mudar a senha
+    if current_user.id != user.id and not current_user.is_administrator:
+        raise HttpError(403, "Você não tem permissão para alterar a senha deste usuário.")
 
     if not user.check_password(payload.old_password):
         return {"success": False, "error": "Senha atual incorreta"}
@@ -84,11 +86,9 @@ def change_password(request, user_id: int, payload: ChangePasswordIn):
 
 
 # ========== CREATE USER ==========
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.post("", response=UserOut)
 def create_user(request, payload: UserCreateIn):
-
+    check_admin(request)
     user = User.objects.create_user(
         username=payload.username,
         email=payload.email,
@@ -100,7 +100,6 @@ def create_user(request, payload: UserCreateIn):
         is_active=payload.is_active,
     )
 
-    # grupos
     group_ids = resolve_group_ids(payload.dict())
     if group_ids:
         user.groups.set(group_ids)
@@ -109,10 +108,9 @@ def create_user(request, payload: UserCreateIn):
 
 
 # ========== LIST USERS (PAGINATED) ==========
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.get("/list", response=PaginatedUserResponse)
 def get_users_paginated(request, page: int = 1, page_size: int = 15):
+    check_admin(request)
     try:
         queryset = (
             User.objects.select_related("department", "position")
@@ -141,31 +139,33 @@ def get_users_paginated(request, page: int = 1, page_size: int = 15):
 
 
 # ========== GET ONE USER ==========
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.get("/{user_id}", response=UserOut)
 def get_user_by_id(request, user_id: int):
+    # Permitir ver detalhe básico se for o próprio ou admin
     user = get_object_or_404(
         User.objects.select_related("department", "position"),
         id=user_id
     )
+    if request.auth.id != user.id:
+        check_admin(request)
+        
     return UserOut.from_orm(user)
 
 
 # ========== UPDATE USER ==========
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.post("/{user_id}", response=UserOut)
 def update_user(request, user_id: int, payload: UserUpdateIn):
     user = get_object_or_404(User, id=user_id)
+    
+    # Apenas admin ou o próprio (para alguns campos)
+    if request.auth.id != user.id:
+        check_admin(request)
 
     data = payload.dict(exclude_unset=True)
 
-    # atualizar password apenas se enviada
     if "password" in data and data["password"]:
         user.set_password(data.pop("password"))
 
-    # outros campos
     for attr in [
         "username", "email", "first_name", "last_name",
         "is_active", "department_id", "position_id"
@@ -175,7 +175,6 @@ def update_user(request, user_id: int, payload: UserUpdateIn):
 
     user.save()
 
-    # atualizar grupos somente se enviados
     group_ids = resolve_group_ids(data)
     if group_ids is not None:
         user.groups.set(group_ids)
@@ -183,63 +182,37 @@ def update_user(request, user_id: int, payload: UserUpdateIn):
     return UserOut.from_orm(user)
 
 
-# ========== UPDATE USER IMAGE (CORRIGIDO) ==========
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
+# ========== UPDATE USER IMAGE ==========
 @router.post("/{user_id}/image", response=UserOut)
 def update_user_image(request, user_id: int, image: UploadedFile = File(...)):
     user = get_object_or_404(User, id=user_id)
+    if request.auth.id != user.id:
+        check_admin(request)
+        
     user.image.save(image.name, image, save=True)
     return UserOut.from_orm(user)
 
 
-# ========== ACTIVATE USER ==========
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
+# ========== ACTIVATE / DEACTIVATE USER ==========
 @router.patch("/{user_id}/deactivate")
 def deactivate_user(request, user_id: int):
+    check_admin(request)
     user = get_object_or_404(User, id=user_id)
     user.is_active = False
     user.save()
     return {"success": True}
 
 
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.patch("/{user_id}/activate")
 def activate_user(request, user_id: int):
+    check_admin(request)
     user = get_object_or_404(User, id=user_id)
     user.is_active = True
     user.save()
     return {"success": True}
 
 
-# ========== UPLOAD FILE (LEGADO) ==========
-# @authentication_classes([JWTAuthentication])
-# @permission_classes([IsAuthenticated])
-# @router.post("/upload")
-# def upload_user_file(request, user_id: int, file: UploadedFile = File(...)):
-#     user = get_object_or_404(User, id=user_id)
-#
-#     folder = datetime.now().strftime("%Y%m%d")
-#     upload_dir = os.path.join(settings.MEDIA_ROOT, "users", folder)
-#     os.makedirs(upload_dir, exist_ok=True)
-#
-#     file_path = os.path.join(upload_dir, file.name)
-#
-#     with open(file_path, "wb+") as destination:
-#         for chunk in file.chunks():
-#             destination.write(chunk)
-#
-#     user.image = f"users/{folder}/{file.name}"
-#     user.save()
-#
-#     return {"success": True, "filename": user.image}
-#
-
 # ========== DOWNLOAD FILE ==========
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.get("/download/{file_path}")
 def download_user_file(request, file_path: str):
     final_path = os.path.join(settings.MEDIA_ROOT, file_path)

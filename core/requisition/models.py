@@ -4,60 +4,60 @@ from core.erp.models import Department
 from core.project.models import Project
 from core.user.models import User
 
-# class Supplier(models.Model):
-#     """
-#     Representa um fornecedor.
-#     - Utilizado como fornecedor preferencial nas requisições.
-#     - Pode ser associado a itens no futuro.
-#     """
-#     code = models.CharField(
-#         max_length=50,
-#         unique=True,
-#         verbose_name='Supplier Code'
-#     )
-#     name = models.CharField(
-#         max_length=200,
-#         verbose_name='Supplier Name'
-#     )
-#     tax_id = models.CharField(
-#         max_length=50,
-#         verbose_name='Tax ID / NIF',
-#         blank=True
-#     )
-#     email = models.EmailField(
-#         verbose_name='Email',
-#         blank=True
-#     )
-#     phone = models.CharField(
-#         max_length=50,
-#         verbose_name='Phone',
-#         blank=True
-#     )
-#     address = models.TextField(
-#         verbose_name='Address',
-#         blank=True
-#     )
-#     payment_terms = models.IntegerField(
-#         verbose_name='Payment Terms (days)',
-#         default=30,
-#         help_text='Default payment terms in days'
-#     )
-#     is_active = models.BooleanField(
-#         verbose_name='Active',
-#         default=True
-#     )
-#
-#     created_at = models.DateTimeField(auto_now_add=True)
-#     updated_at = models.DateTimeField(auto_now=True)
-#
-#     class Meta:
-#         db_table = 'supplier'
-#         verbose_name = 'Supplier'
-#         verbose_name_plural = 'Suppliers'
-#         ordering = ['name']
-#
-# def __str__(self):
-#     return f"{self.code} - {self.name}"
+class Supplier(models.Model):
+    """
+    Representa um fornecedor.
+    - Utilizado como fornecedor preferencial nas requisições.
+    - Pode ser associado a itens no futuro.
+    """
+    code = models.CharField(
+        max_length=50,
+        unique=True,
+        verbose_name='Supplier Code'
+    )
+    name = models.CharField(
+        max_length=200,
+        verbose_name='Supplier Name'
+    )
+    tax_id = models.CharField(
+        max_length=50,
+        verbose_name='Tax ID / NIF',
+        blank=True
+    )
+    email = models.EmailField(
+        verbose_name='Email',
+        blank=True
+    )
+    phone = models.CharField(
+        max_length=50,
+        verbose_name='Phone',
+        blank=True
+    )
+    address = models.TextField(
+        verbose_name='Address',
+        blank=True
+    )
+    payment_terms = models.IntegerField(
+        verbose_name='Payment Terms (days)',
+        default=30,
+        help_text='Default payment terms in days'
+    )
+    is_active = models.BooleanField(
+        verbose_name='Active',
+        default=True
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'supplier'
+        verbose_name = 'Supplier'
+        verbose_name_plural = 'Suppliers'
+        ordering = ['name']
+
+    def __str__(self):
+        return f"{self.code} - {self.name}"
 
 class ItemCategory(models.Model):
     """
@@ -190,12 +190,21 @@ class PurchaseRequest(models.Model):
     )
 
     # ----- STATUS E URGÊNCIA -----
+    URGENCY_LEVELS = [
+        ('LOW', 'Low'),
+        ('MEDIUM', 'Medium'),
+        ('HIGH', 'High'),
+        ('CRITICAL', 'Critical'),
+    ]
+
     STATUS_CHOICES = [
         ('DRAFT', 'Draft'),
         ('PENDING_PROJECT_APPROVAL', 'Pending Project Approval'),
         ('PENDING_DEPARTMENT_APPROVAL', 'Pending Department Approval'),
         ('PENDING_PURCHASING', 'Pending Purchasing Analysis'),
         ('PENDING_DIRECTOR_APPROVAL', 'Pending Director Approval'),
+        ('AWAITING_REQUESTER_DECISION', 'Awaiting Requester Decision'),
+        ('PARTIALLY_APPROVED', 'Partially Approved'),
         ('APPROVED', 'Approved'),
         ('REJECTED', 'Rejected'),
         ('CANCELLED', 'Cancelled'),
@@ -209,6 +218,13 @@ class PurchaseRequest(models.Model):
         choices=STATUS_CHOICES,
         default='DRAFT',
         verbose_name='Status'
+    )
+
+    urgency_level = models.CharField(
+        max_length=20,
+        choices=URGENCY_LEVELS,
+        default='MEDIUM',
+        verbose_name='Nível de Urgência'
     )
     cost_center = models.CharField(
         max_length=50,
@@ -225,6 +241,39 @@ class PurchaseRequest(models.Model):
         default=0,
         verbose_name='Total Amount',
         editable=False,
+    )
+
+    original_total = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        verbose_name='Original Total',
+        editable=False,
+        help_text='Snapshot financeiro na submissão'
+    )
+
+    approved_total = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        verbose_name='Approved Total',
+        editable=False,
+        help_text='Valor final após ajustes da Central'
+    )
+
+    savings_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        verbose_name='Savings Amount',
+        editable=False,
+        help_text='Poupança gerada (original_total - approved_total)'
+    )
+
+    iteration = models.IntegerField(
+        default=1,
+        verbose_name='Iteration',
+        help_text='Número de resubmissões'
     )
 
     # ----- TEXTOS -----
@@ -272,6 +321,13 @@ class PurchaseRequest(models.Model):
         null=True,
         blank=True,
         verbose_name='Completed At'
+    )
+
+    awaiting_decision_since = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Awaiting Decision Since',
+        help_text='Registo de quando entrou em Awaiting Requester Decision para timeout de 48h'
     )
 
     # ----- ERP SYNC FIELDS (preparação para integração futura) -----
@@ -497,7 +553,18 @@ class PurchaseRequestItem(Model):
         max_length=200,
         null=True,
         blank=True,
-        verbose_name='Preferred Supplier'
+        verbose_name='Preferred Supplier (Texto)',
+        help_text='Nome do fornecedor caso não esteja cadastrado'
+    )
+
+    supplier = models.ForeignKey(
+        'Supplier',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='items',
+        verbose_name='Supplier (Cadastrado)',
+        help_text='Vínculo com a tabela mestre de fornecedores'
     )
 
     special_status = models.CharField(
@@ -506,6 +573,51 @@ class PurchaseRequestItem(Model):
         default='NORMAL',
         verbose_name='Special Status',
         help_text='For "Sob Consulta" or "A Definir" cases'
+    )
+
+    # ----- CAMPOS DE APROVAÇÃO PARCIAL -----
+    ITEM_STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('APPROVED', 'Approved'),
+        ('REJECTED', 'Rejected'),
+    ]
+
+    status = models.CharField(
+        max_length=20,
+        choices=ITEM_STATUS_CHOICES,
+        default='PENDING',
+        verbose_name='Status de Aprovação'
+    )
+
+    approved_quantity = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name='Quantidade Aprovada',
+        help_text='Quantidade final aprovada pela Central/Direção'
+    )
+
+    approved_unit_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name='Preço Unitário Aprovado',
+        help_text='Preço final negociado pela Central'
+    )
+
+    rejection_reason = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name='Motivo de Rejeição',
+        help_text='Obrigatório se o item for rejeitado'
+    )
+
+    is_locked = models.BooleanField(
+        default=False,
+        verbose_name='Bloqueado',
+        help_text='Bloqueia edição pelo solicitante após aprovação parcial'
     )
 
     # Observações por item
@@ -846,3 +958,58 @@ class PurchaseRequestAssignment(models.Model):
 
     def __str__(self):
         return f"{self.status} - {self.purchase_request.code} - {self.approver.get_full_name()}"
+
+
+class RequisitionAuditLog(models.Model):
+    """
+    Registo de auditoria imutável para alterações relevantes na requisição.
+    - Guarda snapshots do antes/depois para relatórios e timelines.
+    """
+    purchase_request = models.ForeignKey(
+        PurchaseRequest,
+        on_delete=models.CASCADE,
+        related_name='audit_logs',
+        verbose_name='Purchase Request'
+    )
+    performed_by = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='executed_audits',
+        verbose_name='Performed By'
+    )
+    action_type = models.CharField(
+        max_length=50,
+        verbose_name='Action Type',
+        help_text='Ex: ITEM_UPDATED, STATUS_CHANGED, PRICE_REVISION'
+    )
+    action_description = models.TextField(
+        verbose_name='Action Description'
+    )
+    previous_values = models.JSONField(
+        null=True,
+        blank=True,
+        verbose_name='Previous Values',
+        help_text='Snapshot antes da alteração'
+    )
+    new_values = models.JSONField(
+        null=True,
+        blank=True,
+        verbose_name='New Values',
+        help_text='Snapshot após a alteração'
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Created At'
+    )
+
+    class Meta:
+        db_table = 'requisition_audit_log'
+        verbose_name = 'Requisition Audit Log'
+        verbose_name_plural = 'Requisition Audit Logs'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['purchase_request', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.action_type} - {self.purchase_request.code} - {self.performed_by.username}"

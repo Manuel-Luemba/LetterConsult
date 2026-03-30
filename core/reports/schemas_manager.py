@@ -6,7 +6,7 @@ Unified and comprehensive structure
 from ninja import Schema
 from typing import List, Dict, Any, Optional, Union
 from decimal import Decimal
-from pydantic import Field, validator
+from pydantic import Field, validator, root_validator
 from datetime import date, datetime
 from django.utils import timezone
 from enum import Enum
@@ -70,6 +70,59 @@ class DashboardBaseFilterSchema(Schema):
     project_id: Optional[int] = None
     activity_id: Optional[int] = None
     status: Optional[TimesheetStatusEnum] = None
+
+    @root_validator(pre=True)
+    def flatten_dots(cls, values):
+        """Unflatten 'period.*' dot-notation keys from flat query params"""
+        # Obter o objeto subjacente (pode ser um DjangoGetter com ._obj)
+        v_dict = getattr(values, "_obj", values)
+        
+        # Converter para normal dict para permitir mutação
+        if hasattr(v_dict, "dict"):
+            v_dict = v_dict.dict()
+        elif hasattr(v_dict, "items"):
+            v_dict = dict(v_dict.items())
+        else:
+            v_dict = dict(v_dict)
+            
+        # Suporte para parâmetros FLAT (ex: curl com type=custom)
+        if "type" in v_dict:
+            if "period" not in v_dict or v_dict["period"] is None:
+                v_dict["period"] = {}
+            if isinstance(v_dict["period"], dict):
+                v_dict["period"]["type"] = v_dict.pop("type")
+                
+        if "start_date" in v_dict:
+            if "period" not in v_dict or v_dict["period"] is None:
+                v_dict["period"] = {}
+            if isinstance(v_dict["period"], dict):
+                v_dict["period"]["start_date"] = v_dict.pop("start_date")
+                
+        if "end_date" in v_dict:
+            if "period" not in v_dict or v_dict["period"] is None:
+                v_dict["period"] = {}
+            if isinstance(v_dict["period"], dict):
+                v_dict["period"]["end_date"] = v_dict.pop("end_date")
+
+        # Suporte para parâmetros com DOT-NOTATION (period.type)
+        if "period.type" in v_dict:
+            if "period" not in v_dict or v_dict["period"] is None:
+                v_dict["period"] = {}
+            elif isinstance(v_dict["period"], str):
+                 v_dict["period"] = {}
+            
+            if isinstance(v_dict["period"], dict):
+                v_dict["period"]["type"] = v_dict.pop("period.type")
+                
+            if "period.start_date" in v_dict:
+                if isinstance(v_dict["period"], dict):
+                    v_dict["period"]["start_date"] = v_dict.pop("period.start_date")
+                    
+            if "period.end_date" in v_dict:
+                if isinstance(v_dict["period"], dict):
+                    v_dict["period"]["end_date"] = v_dict.pop("period.end_date")
+                
+        return v_dict
 
 class ManagerFilterSchema(DashboardBaseFilterSchema):
     """Specific filters for managers"""
@@ -446,27 +499,27 @@ class ManagerFilterOptionsSchema(Schema):
     employees: List[BasicEmployeeSchema]
     roles: List[Dict[str, Any]]
     periods: List[Dict[str, str]] = Field(default_factory=lambda: [
-        {"value": "today", "label": "Today"},
-        {"value": "yesterday", "label": "Yesterday"},
-        {"value": "week", "label": "This Week"},
-        {"value": "last_week", "label": "Last Week"},
-        {"value": "month", "label": "This Month"},
-        {"value": "last_month", "label": "Last Month"},
-        {"value": "quarter", "label": "This Quarter"},
-        {"value": "year", "label": "This Year"},
-        {"value": "custom", "label": "Custom"}
+        {"value": "today", "label": "Hoje"},
+        {"value": "yesterday", "label": "Ontem"},
+        {"value": "week", "label": "Esta Semana"},
+        {"value": "last_week", "label": "Semana Passada"},
+        {"value": "month", "label": "Este Mês"},
+        {"value": "last_month", "label": "Mês Passado"},
+        {"value": "quarter", "label": "Trimestre"},
+        {"value": "year", "label": "Este Ano"},
+        {"value": "custom", "label": "Personalizado"}
     ])
     timesheet_statuses: List[Dict[str, str]] = Field(default_factory=lambda: [
-        {"value": "draft", "label": "Draft"},
-        {"value": "submitted", "label": "Submitted"},
-        {"value": "approved", "label": "Approved"},
-        {"value": "rejected", "label": "Rejected"}
+        {"value": "rascunho", "label": "Rascunho"},
+        {"value": "submetido", "label": "Submetido"},
+        {"value": "aprovado", "label": "Aprovado"},
+        {"value": "rejeitado", "label": "Rejeitado"}
     ])
     aggregation_levels: List[Dict[str, str]] = Field(default_factory=lambda: [
-        {"value": "department", "label": "Department"},
+        {"value": "department", "label": "Departamento"},
         {"value": "individual", "label": "Individual"},
-        {"value": "role", "label": "Role"},
-        {"value": "project", "label": "Project"}
+        {"value": "role", "label": "Cargo"},
+        {"value": "project", "label": "Projeto"}
     ])
 
 

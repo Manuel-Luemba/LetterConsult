@@ -7,7 +7,7 @@ from decimal import Decimal
 
 from ninja.errors import ValidationError
 from pydantic import Field
-from pydantic.schema import timedelta
+from datetime import timedelta
 from django.utils import timezone
 
 # ============================================

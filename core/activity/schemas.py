@@ -13,9 +13,9 @@ class ActivityIn(Schema):
 class ActivityOut(ModelSchema):
     department: DepartmentOut  # Aqui está a chave!
 
-    class Config:
+    class Meta:
         model = Activity
-        model_fields = ['id', 'name', 'description', 'department', 'is_active']
+        fields = ['id', 'name', 'description', 'department', 'is_active']
         fields_optional = ['description']
 
 class PaginatedActivityResponse(Schema):

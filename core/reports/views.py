@@ -168,8 +168,6 @@ class ReportLetterView(TemplateView):
                 entity = request.POST.get('entity', '')
                 status = request.POST.get('status', '')
 
-                print(entity, 'MNO')
-
                 # Filtra cartas excluindo as que estão em rascunho
                 search = Letter.objects.exclude(status='drafted')
 

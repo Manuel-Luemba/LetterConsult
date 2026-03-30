@@ -3,21 +3,18 @@ from ninja import Router, Query
 from django.db.models import Q, Sum, Count
 from django.db.models import DecimalField
 from datetime import timedelta
-
-from rest_framework.decorators import authentication_classes, permission_classes
-from rest_framework.permissions import IsAuthenticated
-from rest_framework_simplejwt.authentication import JWTAuthentication
+from core.login.jwt_auth import JWTAuth
 
 from .schemas import *
 from .base.periods import get_period_date_range, get_period_options, PeriodEnum
 from core.timesheet.models import Task, Timesheet
 
-router = Router(tags=["Dashboard"])
+router = Router(tags=["Dashboard"], auth=JWTAuth())
 
 # ==================== FUNÇÕES AUXILIARES ====================
 def get_authenticated_user(request):
     """Obtém usuário autenticado com fallback seguro"""
-    user = request.auth or request.user
+    user = request.auth
     if not user or not user.is_authenticated:
         raise PermissionDenied("Usuário não autenticado")
     return user
@@ -321,8 +318,6 @@ def generate_insights(kpis_data: Dict[str, Any]) -> List[str]:
     return insights[:8]  # Limitar a 8 insights
 
 # ==================== ENDPOINT PRINCIPAL ====================
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.get("/colaborador/", response=DashboardResponseSchema)
 def get_dashboard(
         request,
@@ -397,9 +392,8 @@ def get_dashboard(
         'project', 'activity', 'timesheet'
     )
 
-    print(tasks_qs, 'tarefas')
-
     # 5. Calcular KPIs
+
     # 5.1. Produtividade básica
     total_hours_result = tasks_qs.aggregate(
         total=Sum('hour', output_field=DecimalField(max_digits=10, decimal_places=2))
@@ -523,18 +517,12 @@ def get_dashboard(
             "timesheet_status": task.timesheet.status if task.timesheet else None
         })
 
-    print(f"DEBUG: Filtrando timesheets de {period_start} a {period_end}")
     # 7.2. Timesheets recentes
     timesheets_query = Q(employee=user)
 
     # ADICIONE ESTAS DUAS LINHAS para filtrar pelo período (igual às tasks):
     timesheets_query &= Q(created_at__gte=period_start)
     timesheets_query &= Q(created_at__lte=period_end)
-
-    print(f"DEBUG: Query SQL: {Timesheet.objects.filter(timesheets_query).query}")
-
-    recent_timesheets_qs = Timesheet.objects.filter(timesheets_query).order_by('-created_at')[:10]
-    print(f"DEBUG: Encontrados {recent_timesheets_qs.count()} timesheets no período")
 
     if filters.status:
         timesheets_query &= Q(status=filters.status)
@@ -603,8 +591,6 @@ def get_dashboard(
     )
 
 # ==================== ENDPOINT SIMPLES ====================
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.get("/filter-options/", response=FilterOptionsSchema)
 def get_filter_options(request):
     """Retorna opções de filtro disponíveis"""
@@ -654,8 +640,6 @@ def get_filter_options(request):
         period_options=period_options
     )
 
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.get("/test/")
 def test_endpoint(request):
     """Endpoint de teste"""

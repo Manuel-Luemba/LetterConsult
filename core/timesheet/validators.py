@@ -1,4 +1,4 @@
-# core/timesheet/validators.py
+﻿# core/timesheet/validators.py
 from collections import defaultdict
 from decimal import Decimal
 from typing import Optional, Tuple, Dict, List
@@ -19,11 +19,11 @@ def field_error(field: str, message: str):
 
 
 class TimesheetValidator:
-    # CONSTANTES DE VALIDAÇÃO
-    MAX_HOURS_PER_TASK = Decimal('16.00')  # Máximo por tarefa individual
-    MAX_HOURS_PER_DAY = Decimal('16.00')  # Máximo por dia por colaborador (APENAS NA MESMA TIMESHEET)
-    MAX_RETROACTIVE_DAYS = 30  # Máximo de dias para registrar tarefas passadas
-    MIN_HOURS_PER_DAY = Decimal('0.00')  # Mínimo por tarefa
+    # CONSTANTES DE VALIDAÃ‡ÃƒO
+    MAX_HOURS_PER_TASK = Decimal('16.00')  # MÃ¡ximo por tarefa individual
+    MAX_HOURS_PER_DAY = Decimal('16.00')  # MÃ¡ximo por dia por colaborador (APENAS NA MESMA TIMESHEET)
+    MAX_RETROACTIVE_DAYS = 30  # MÃ¡ximo de dias para registrar tarefas passadas
+    MIN_HOURS_PER_DAY = Decimal('0.00')  # MÃ­nimo por tarefa
 
     STATUS_DISPLAY = {
         'rascunho': 'RASCUNHO',
@@ -38,7 +38,7 @@ class TimesheetValidator:
     ) -> Tuple[bool, Dict, List[str]]:
         """
         Valida todos os aspectos de uma timesheet com a NOVA REGRA:
-        "Entre duas timesheets diferentes não pode haver tarefas com as mesmas datas"
+        "Entre duas timesheets diferentes nÃ£o pode haver tarefas com as mesmas datas"
         """
         daily_totals = defaultdict(Decimal)
         daily_warnings = defaultdict(list)
@@ -47,50 +47,61 @@ class TimesheetValidator:
         validation_level = data.get("validation_level", "strict")
         force_confirm = data.get("force_confirm", False)
 
+        # ðŸš€ OtimizaÃ§Ã£o N+1 Queries: Carregar Projetos e Atividades em lote
+        task_list = data.get('tasks', [])
+        project_ids = {t['project_id'] for t in task_list if 'project_id' in t}
+        activity_ids = {t['activity_id'] for t in task_list if 'activity_id' in t}
+
+        projects_dict = {p.id: p.name for p in Project.objects.filter(id__in=project_ids)}
+        activities_dict = {a.id: a.name for a in Activity.objects.filter(id__in=activity_ids)}
+
+        existing_projects = set(projects_dict.keys())
+        existing_activities = set(activities_dict.keys())
+
         try:
-            # 1. VALIDAÇÕES BÁSICAS (sempre obrigatórias)
+            # 1. VALIDAÃ‡Ã•ES BÃSICAS (sempre obrigatÃ³rias)
             TimesheetValidator._validate_basic_data(data, timesheet_id, employee_id)
 
             # Obter dados importantes
             timesheet_date = data.get('created_at')
             emp_id = data.get('employee_id', employee_id)
 
-            # 2. ✅ NOVA REGRA: VALIDAR SOBREPOSIÇÃO DE DATAS ENTRE TIMESHEETS
+            # 2. âœ… NOVA REGRA: VALIDAR SOBREPOSIÃ‡ÃƒO DE DATAS ENTRE TIMESHEETS
             if emp_id:
                 task_dates = [task['created_at'] for task in data.get('tasks', [])]
                 TimesheetValidator._validate_no_date_overlap(
                     employee_id=emp_id,
                     task_dates=task_dates,
                     exclude_timesheet_id=timesheet_id,
-                    context="criação" if not timesheet_id else "atualização"
+                    context="criaÃ§Ã£o" if not timesheet_id else "atualizaÃ§Ã£o"
                 )
 
-            # 3. VALIDAÇÃO POR TAREFA (dentro da mesma timesheet)
+            # 3. VALIDAÃ‡ÃƒO POR TAREFA (dentro da mesma timesheet)
             task_combinations = set()
 
             for task_data in data.get('tasks', []):
                 task_date = task_data['created_at']
                 task_hour = Decimal(str(task_data['hour']))
 
-                # Acumular para total diário (APENAS nesta timesheet)
+                # Acumular para total diÃ¡rio (APENAS nesta timesheet)
                 daily_totals[task_date] += task_hour
 
-                # Validação individual da tarefa
-                TimesheetValidator._validate_task(task_data, validation_level)
+                # ValidaÃ§Ã£o individual da tarefa (com cache de IDs)
+                TimesheetValidator._validate_task(task_data, existing_projects, existing_activities, validation_level)
 
-                # Validação temporal
+                # ValidaÃ§Ã£o temporal
                 if timesheet_date:
                     TimesheetValidator._validate_temporal_consistency(
                         timesheet_date, task_date, emp_id
                     )
 
-                # Validação retroativa
+                # ValidaÃ§Ã£o retroativa
                 TimesheetValidator._validate_retroactive_date(task_date)
 
-                # ✅ REMOVIDO: Validação de duplicidade ENTRE timesheets
-                # (agora coberta pela regra geral de não sobreposição)
+                # âœ… REMOVIDO: ValidaÃ§Ã£o de duplicidade ENTRE timesheets
+                # (agora coberta pela regra geral de nÃ£o sobreposiÃ§Ã£o)
 
-                # Validação de duplicidade DENTRO da timesheet
+                # ValidaÃ§Ã£o de duplicidade DENTRO da timesheet
                 task_combination = (
                     task_date,
                     task_data['project_id'],
@@ -98,46 +109,46 @@ class TimesheetValidator:
                 )
 
                 if task_combination in task_combinations:
-                    activity = get_object_or_404(Activity, id=task_data['activity_id'])
-                    project = get_object_or_404(Project, id=task_data['project_id'])
+                    activity_name = activities_dict.get(task_data['activity_id'], 'Desconhecida')
+                    project_name = projects_dict.get(task_data['project_id'], 'Desconhecido')
                     raise field_error(
                         "tasks",
-                        f"Tarefa duplicada: dia {task_date}, projeto '{project.name}', atividade '{activity.name}'"
+                        f"Tarefa duplicada: dia {task_date}, projeto '{project_name}', atividade '{activity_name}'"
                     )
                 task_combinations.add(task_combination)
 
-                # ⚠️ Warning para tarefa longa (apenas se não for force_confirm)
+                # âš ï¸ Warning para tarefa longa (apenas se nÃ£o for force_confirm)
                 if not force_confirm and task_hour > Decimal('8.00'):
                     warning_msg = f"Tarefa de {task_hour}h excede 8 horas no dia {task_date}"
                     daily_warnings[task_date].append(warning_msg)
 
-            # 4. ✅ VALIDAÇÃO SIMPLIFICADA: Total diário APENAS nesta timesheet
-            # NÃO precisa mais validar entre timesheets diferentes!
+            # 4. âœ… VALIDAÃ‡ÃƒO SIMPLIFICADA: Total diÃ¡rio APENAS nesta timesheet
+            # NÃƒO precisa mais validar entre timesheets diferentes!
             for task_date, total_in_this_timesheet in daily_totals.items():
-                # Validar limite máximo diário (APENAS nesta timesheet)
+                # Validar limite mÃ¡ximo diÃ¡rio (APENAS nesta timesheet)
                 if total_in_this_timesheet > TimesheetValidator.MAX_HOURS_PER_DAY:
                     raise field_error(
                         "tasks",
-                        f"Total diário em {task_date} é {float(total_in_this_timesheet)}h "
-                        f"(máximo permitido: {TimesheetValidator.MAX_HOURS_PER_DAY}h)"
+                        f"Total diÃ¡rio em {task_date} Ã© {float(total_in_this_timesheet)}h "
+                        f"(mÃ¡ximo permitido: {TimesheetValidator.MAX_HOURS_PER_DAY}h)"
                     )
 
-                # AVISOS OPCIONAIS (apenas se não for force_confirm)
+                # AVISOS OPCIONAIS (apenas se nÃ£o for force_confirm)
                 if not force_confirm:
                     if total_in_this_timesheet > Decimal('8.00'):
                         warning_msg = (
-                            f"⚠️ Total de horas no dia {task_date} é {float(total_in_this_timesheet)}h "
-                            f"(superior às 8h normais). Deseja confirmar?"
+                            f"âš ï¸ Total de horas no dia {task_date} Ã© {float(total_in_this_timesheet)}h "
+                            f"(superior Ã s 8h normais). Deseja confirmar?"
                         )
                         daily_warnings[task_date].append(warning_msg)
                     elif total_in_this_timesheet < Decimal('8.00'):
                         warning_msg = (
-                            f"⚠️ Total de horas no dia {task_date} é {float(total_in_this_timesheet)}h "
-                            f"(mínimo recomendado: 8h). Deseja confirmar?"
+                            f"âš ï¸ Total de horas no dia {task_date} Ã© {float(total_in_this_timesheet)}h "
+                            f"(mÃ­nimo recomendado: 8h). Deseja confirmar?"
                         )
                         daily_warnings[task_date].append(warning_msg)
 
-            # 5. Validação de duplicidade de timesheet na mesma data
+            # 5. ValidaÃ§Ã£o de duplicidade de timesheet na mesma data
             if validation_level == "strict":
                 TimesheetValidator._validate_duplicate_timesheet(
                     data, timesheet_id, employee_id
@@ -153,16 +164,16 @@ class TimesheetValidator:
         except HttpError:
             raise
         except Exception as e:
-            raise HttpError(500, f"Erro na validação: {str(e)}")
+            raise HttpError(500, f"Erro na validaÃ§Ã£o: {str(e)}")
 
-    # ==================== NOVA FUNÇÃO PRINCIPAL ====================
+    # ==================== NOVA FUNÃ‡ÃƒO PRINCIPAL ====================
 
     @staticmethod
     def _validate_no_date_overlap(
             employee_id: int,
             task_dates: List[date],
             exclude_timesheet_id: Optional[int] = None,
-            context: str = "criação"
+            context: str = "criaÃ§Ã£o"
     ) -> None:
         """
         REGRA SIMPLES E CLARA
@@ -170,7 +181,7 @@ class TimesheetValidator:
         if not task_dates:
             return
 
-        # Buscar datas já ocupadas
+        # Buscar datas jÃ¡ ocupadas
         occupied_dates = Task.objects.filter(
             timesheet__employee_id=employee_id,
             created_at__in=task_dates
@@ -188,57 +199,17 @@ class TimesheetValidator:
         if len(dates_list) == 1:
             raise field_error(
                 "tasks",
-                f"A data {dates_list[0]} já está ocupada em outra timesheet. "
+                f"A data {dates_list[0]} jÃ¡ estÃ¡ ocupada em outra timesheet. "
                 f"Escolha uma data diferente."
             )
         else:
             dates_str = ", ".join(dates_list)
             raise field_error(
                 "tasks",
-                f"As datas {dates_str} já estão ocupadas em outras timesheets. "
+                f"As datas {dates_str} jÃ¡ estÃ£o ocupadas em outras timesheets. "
                 f"Escolha datas diferentes."
             )
-    # ==================== MÉTODOS AUXILIARES (SIMPLIFICADOS) ====================
-
-    @staticmethod
-    def _get_aggregated_daily_total(
-            employee_id: int,
-            task_date: date,
-            exclude_timesheet_id: Optional[int],
-            new_hours: Decimal
-    ) -> Decimal:
-        """
-        ✅ MANTIDO para compatibilidade, mas NÃO SERÁ MAIS USADO
-        na validação principal (apenas para relatórios ou análise)
-        """
-        # Horas já existentes (exceto a timesheet atual se estiver editando)
-        existing_query = Task.objects.filter(
-            timesheet__employee_id=employee_id,
-            created_at=task_date
-        )
-
-        if exclude_timesheet_id:
-            existing_query = existing_query.exclude(timesheet_id=exclude_timesheet_id)
-
-        existing_hours = existing_query.aggregate(
-            total=Sum('hour')
-        )['total'] or Decimal('0.00')
-
-        return existing_hours + new_hours
-
-    @staticmethod
-    def _validate_cross_timesheet_duplicate(
-            employee_id: int,
-            task_date: date,
-            task_data: dict,
-            exclude_timesheet_id: Optional[int]
-    ):
-        """
-        ✅ REMOVIDO DA VALIDAÇÃO PRINCIPAL
-        (agora coberto pela regra geral de não sobreposição)
-        """
-        # Esta função pode ser removida ou mantida apenas para logs
-        pass
+    # ==================== MÃ‰TODOS AUXILIARES (SIMPLIFICADOS) ====================
 
     @staticmethod
     def _validate_temporal_consistency(
@@ -247,30 +218,30 @@ class TimesheetValidator:
             employee_id: int
     ):
         """
-        Valida consistência temporal entre datas
+        Valida consistÃªncia temporal entre datas
         """
         today = timezone.now().date()
 
-        # 1. Tarefa não pode ser futura
+        # 1. Tarefa nÃ£o pode ser futura
         if task_date > today:
             raise field_error(
                 "created_at",
-                f"Tarefa não pode ser futura: {task_date} > {today}"
+                f"Tarefa nÃ£o pode ser futura: {task_date} > {today}"
             )
 
-        # 2. Timesheet não pode ser futura (já está no _validate_basic_data)
+        # 2. Timesheet nÃ£o pode ser futura (jÃ¡ estÃ¡ no _validate_basic_data)
 
-        # 3. Tarefa não pode ser posterior à timesheet
+        # 3. Tarefa nÃ£o pode ser posterior Ã  timesheet
         if task_date > timesheet_date:
             raise field_error(
                 "created_at",
-                f"Tarefa ({task_date}) não pode ser posterior à timesheet ({timesheet_date})"
+                f"Tarefa ({task_date}) nÃ£o pode ser posterior Ã  timesheet ({timesheet_date})"
             )
 
     @staticmethod
     def _validate_retroactive_date(task_date: date):
         """
-        Valida que tarefa não é muito antiga
+        Valida que tarefa nÃ£o Ã© muito antiga
         """
         today = timezone.now().date()
         days_diff = (today - task_date).days
@@ -278,15 +249,15 @@ class TimesheetValidator:
         if days_diff > TimesheetValidator.MAX_RETROACTIVE_DAYS:
             raise field_error(
                 "created_at",
-                f"Tarefa muito antiga: {days_diff} dias atrás. "
-                f"Máximo permitido: {TimesheetValidator.MAX_RETROACTIVE_DAYS} dias"
+                f"Tarefa muito antiga: {days_diff} dias atrÃ¡s. "
+                f"MÃ¡ximo permitido: {TimesheetValidator.MAX_RETROACTIVE_DAYS} dias"
             )
 
-    # ==================== MÉTODOS EXISTENTES (MANTIDOS) ====================
+    # ==================== MÃ‰TODOS EXISTENTES (MANTIDOS) ====================
 
     @staticmethod
     def _validate_basic_data(data: dict, timesheet_id: Optional[int], employee_id: Optional[int]):
-        """Validações básicas dos dados"""
+        """ValidaÃ§Ãµes bÃ¡sicas dos dados"""
         if not data.get("tasks"):
             raise field_error("tasks", "Timesheet deve conter pelo menos uma tarefa")
 
@@ -296,42 +267,44 @@ class TimesheetValidator:
             if data.get("department_id") is not None:
                 department = get_object_or_404(Department, id=data["department_id"])
                 if employee.department_id != department.id:
-                    raise field_error("department_id", "Funcionário não pertence a este departamento")
+                    raise field_error("department_id", "FuncionÃ¡rio nÃ£o pertence a este departamento")
 
-        # Timesheet não pode ser futura
+        # Timesheet nÃ£o pode ser futura
         if data.get("created_at") and data["created_at"] > timezone.now().date():
-            raise field_error("created_at", "Não é possível criar timesheet para datas futuras")
+            raise field_error("created_at", "NÃ£o Ã© possÃ­vel criar timesheet para datas futuras")
 
     @staticmethod
-    def _validate_task(task_data: dict, validation_level: str = "strict"):
-        """Validação individual de cada tarefa"""
+    def _validate_task(task_data: dict, existing_projects: set, existing_activities: set, validation_level: str = "strict"):
+        """ValidaÃ§Ã£o individual de cada tarefa"""
         task_hour = Decimal(str(task_data['hour']))
 
         # Horas devem ser positivas
         if task_hour <= Decimal('0.00'):
             raise field_error("hour", "Horas da tarefa devem ser maiores que zero")
 
-        # Mínimo de 0.5h por tarefa
+        # MÃ­nimo de 0.5h por tarefa
         if task_hour < TimesheetValidator.MIN_HOURS_PER_DAY:
             raise field_error(
                 "hour",
-                f"Tarefa muito curta: {task_hour}h. Mínimo: {TimesheetValidator.MIN_HOURS_PER_DAY}h"
+                f"Tarefa muito curta: {task_hour}h. MÃ­nimo: {TimesheetValidator.MIN_HOURS_PER_DAY}h"
             )
 
-        # Máximo por tarefa
+        # MÃ¡ximo por tarefa
         if task_hour > TimesheetValidator.MAX_HOURS_PER_TASK:
             raise field_error(
                 "hour",
-                f"Tarefa não pode exceder {TimesheetValidator.MAX_HOURS_PER_TASK}h: {task_hour}h"
+                f"Tarefa nÃ£o pode exceder {TimesheetValidator.MAX_HOURS_PER_TASK}h: {task_hour}h"
             )
 
-        # Verificar se projeto e atividade existem
-        get_object_or_404(Activity, id=task_data['activity_id'])
-        get_object_or_404(Project, id=task_data['project_id'])
+        # Verificar se projeto e atividade existem (via cache)
+        if task_data['activity_id'] not in existing_activities:
+            raise field_error("activity_id", f"Atividade (ID: {task_data['activity_id']}) nÃ£o encontrada")
+        if task_data['project_id'] not in existing_projects:
+            raise field_error("project_id", f"Projeto (ID: {task_data['project_id']}) nÃ£o encontrado")
 
     @staticmethod
     def _validate_duplicate_timesheet(data: dict, timesheet_id: Optional[int], employee_id: Optional[int]):
-        """Verifica se já existe uma timesheet do colaborador na mesma data"""
+        """Verifica se jÃ¡ existe uma timesheet do colaborador na mesma data"""
         emp_id = data.get('employee_id', employee_id)
         created_at = data.get('created_at')
 
@@ -350,15 +323,15 @@ class TimesheetValidator:
             existing = duplicate_query.first()
             raise field_error(
                 "created_at",
-                f"Já existe uma timesheet (ID: {existing.id}) para este colaborador na data {created_at}. Status: {existing.status}"
+                f"JÃ¡ existe uma timesheet (ID: {existing.id}) para este colaborador na data {created_at}. Status: {existing.status}"
             )
 
     @staticmethod
-    def validate_timesheet_status(timesheet: Timesheet, allowed_statuses: list = ['rascunho']):
+    def validate_timesheet_status(timesheet: Timesheet, allowed_statuses: list = ['rascunho', 'com_sugestoes', 'com_rejeitadas']):
         if timesheet.status not in allowed_statuses:
-            raise field_error("status", f"Timesheet com status '{timesheet.status}' não pode ser editada")
+            raise field_error("status", f"Timesheet com status '{timesheet.status}' nÃ£o pode ser editada")
 
     @staticmethod
     def validate_user_permission(timesheet: Timesheet, user: User):
         if timesheet.employee_id != user.id and not user.is_staff:
-            raise HttpError(403, "Você não tem permissão para editar esta timesheet")
+            raise HttpError(403, "VocÃª nÃ£o tem permissÃ£o para editar esta timesheet")

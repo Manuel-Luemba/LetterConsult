@@ -16,9 +16,9 @@ class ProjectIn(Schema):
     is_active: Optional[bool] = None
 
 class ProjectOut(ModelSchema):
-    class Config:
+    class Meta:
         model = Project
-        model_fields = ['id', 'name', 'description', 'cod_contractor', 'cod_supervision', 'cost_center',
+        fields = ['id', 'name', 'description', 'cod_contractor', 'cod_supervision', 'cost_center',
                         'localization', 'is_active']
         fields_optional = ['description']
 

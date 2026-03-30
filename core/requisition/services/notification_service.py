@@ -421,3 +421,40 @@ class NotificationService:
             logger.debug(f'[WS] Evento {event_type} enviado para {group_name}')
         except Exception as e:
             logger.error(f'[WS] Falha ao enviar broadcast para user_{user.id}: {e}')
+    def _broadcast_realtime_to_group(self, group_name, event_type, payload):
+        """
+        Envia evento para um grupo arbitrário (ex: 'purchase_requests' global).
+        """
+        try:
+            from channels.layers import get_channel_layer
+            from asgiref.sync import async_to_sync
+            from django.utils import timezone
+            
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                group_name,
+                {
+                    'type': 'purchase_request_event',
+                    'data': {
+                        'type': event_type,
+                        'payload': payload,
+                        'timestamp': timezone.now().isoformat()
+                    }
+                }
+            )
+            logger.debug(f'[WS] Evento {event_type} enviado para Grupo {group_name}')
+        except Exception as e:
+            logger.error(f'[WS] Falha ao enviar broadcast para Grupo {group_name}: {e}')
+
+    def notify_item_updated(self, purchase_request, actor=None):
+        """
+        Evento: ITEM_UPDATED
+        Emite um evento global via WS para que as tabelas atualizem.
+        """
+        payload = {
+            'id': purchase_request.id,
+            'code': purchase_request.code,
+            'message': f'Itens da requisição #{purchase_request.code} foram atualizados.',
+            'actor': actor.get_full_name() if actor else 'Central'
+        }
+        self._broadcast_realtime_to_group('purchase_requests', 'purchase_request.item_updated', payload)

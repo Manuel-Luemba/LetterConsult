@@ -2,7 +2,7 @@ from ninja import Schema
 from typing import List, Optional
 
 from pydantic import Field
-from pydantic.schema import datetime
+from datetime import datetime
 
 from core.access_control.schemas import GroupOut
 
@@ -60,12 +60,13 @@ class UserOut(Schema):
     position_id: Optional[int] = None
     position_name: Optional[str] = None   # descomente se quiser
 
-    date_joined: Optional[datetime] = None
+    date_joined: Optional[str] = None
 
     groups: List[GroupOut] = Field(default_factory=list, description="Grupos do usuário")
 
-    class Config:
-        orm_mode = True
+    class Meta:
+        #orm_mode = True
+        from_attributes = True
         # Permite acessar por nome de campo mesmo com alias (opcional)
         # allow_population_by_field_name = True
 
@@ -76,35 +77,38 @@ class UserOut(Schema):
     # For now, I will add it as a field to UserOut and UserSchema, and assume the ORM model
     # will provide this attribute.
 
-    @classmethod
-    def from_orm(cls, obj):
-        # Pega mapeamento automático do Pydantic
-        instance = super().from_orm(obj)
+    @staticmethod
+    def resolve_full_name(obj):
+        return obj.get_full_name() if hasattr(obj, 'get_full_name') else f"{getattr(obj, 'first_name', '')} {getattr(obj, 'last_name', '')}".strip()
 
-        if obj.image:
+    @staticmethod
+    def resolve_image(obj):
+        if hasattr(obj, 'image') and obj.image:
             try:
-                instance.image = obj.image.url
+                return obj.image.url
             except:
-                instance.image = None
-        else:
-            instance.image = None
+                return None
+        return None
 
-        # Full name (garante que venha do método)
-        instance.full_name = obj.get_full_name() if hasattr(obj, 'get_full_name') else None
+    @staticmethod
+    def resolve_department_name(obj):
+        return obj.department.name if obj.department else None
 
-        # Department name (se select_related foi feito)
-        if obj.department:
-            instance.department_name = getattr(obj.department, 'name', None)
-            instance.department_id = obj.department.id
+    @staticmethod
+    def resolve_department_id(obj):
+        return obj.department_id
 
-        # Position (opcional)
-        if obj.position:
-            instance.position_name = getattr(obj.position, 'name', None)
-            instance.position_id = obj.position.id
+    @staticmethod
+    def resolve_position_name(obj):
+        return obj.position.name if obj.position else None
 
-        if obj.date_joined:
-            instance.date_joined = obj.date_joined.strftime("%d/%m/%Y")
-        return instance
+    @staticmethod
+    def resolve_position_id(obj):
+        return obj.position_id
+
+    @staticmethod
+    def resolve_date_joined(obj):
+        return obj.date_joined.strftime("%d/%m/%Y") if obj.date_joined else None
 
 class PaginatedUserResponse(Schema):
     count: int

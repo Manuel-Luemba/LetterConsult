@@ -1,30 +1,41 @@
+from typing import List, Optional
 from io import BytesIO
 from django.contrib.auth import get_user_model
 from django.http import FileResponse
 from ninja import Router, File
 from ninja.files import UploadedFile
-from rest_framework.decorators import authentication_classes, permission_classes
-from rest_framework.permissions import IsAuthenticated
-from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404
 import pandas as pd
 from openpyxl import Workbook
+from core.login.jwt_auth import JWTAuth
 
 from .schemas_department import DepartmentIn, DepartmentOut, PaginatedDepartmentResponse
 from core.erp.models import Department
 from ..user.models import User
+from ninja.errors import HttpError
 
-router = Router(tags=["Department"])
+router = Router(tags=["Department"], auth=JWTAuth())
+
+def check_admin(request):
+    if not getattr(request.auth, 'is_administrator', False):
+        raise HttpError(403, "Apenas administradores podem executar esta ação.")
+
 REQUIRED_COLUMNS = ["name", "abbreviation", "manager", "cost_center"]
+
+# -------------------------------------------------------------
+# LIST ALL
+# -------------------------------------------------------------
+@router.get("/", response=List[DepartmentOut])
+def get_all_departments(request):
+    return [DepartmentOut.from_orm(dep) for dep in Department.objects.all().order_by('name')]
 
 # -------------------------------------------------------------
 # CREATE
 # -------------------------------------------------------------
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.post("")
 def create_department(request, payload: DepartmentIn):
+    check_admin(request)
     data = payload.dict()
 
     manager_id = data.pop("manager", None)
@@ -49,10 +60,9 @@ def create_department(request, payload: DepartmentIn):
 # -------------------------------------------------------------
 # IMPORT EXCEL
 # -------------------------------------------------------------
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.post("/import-excel")
 def import_departments_excel(request, file: UploadedFile = File(...)):
+    check_admin(request)
     try:
         df = pd.read_excel(file.file)
     except Exception as e:
@@ -119,9 +129,6 @@ def download_department_template(request):
 
     ws = wb.active
     ws.title = "Modelo_Departamentos"
-    # ws.append(["name", "abbreviation", "manager", "cost_center", "is_active"])
-    # ws.append(["Departamento de TI", "TI", 1, "CC-001", "SIM"])
-    # ws.append(["Departamento Financeiro", "FIN", 2, "CC-002", "NÃO"])
 
     ws2 = wb.create_sheet("Instruções")
     ws2.append(["INSTRUÇÕES PARA IMPORTAÇÃO DE DEPARTAMENTOS"])
@@ -148,41 +155,9 @@ def download_department_template(request):
 
     return FileResponse(output, filename="modelo_importacao_departamentos.xlsx")
 
-@router.get("/download-template1")
-def download_department_template1(request):
-    User = get_user_model()
-    users = list(User.objects.all().values("id", "first_name", "last_name", "email"))
-    departments = list(Department.objects.all().values("id", "abbreviation", "name"))
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Modelo_Departamentos"
-
-    ws.append(["name", "abbreviation", "manager", "cost_center", "is_active"])
-    ws.append(["Departamento de TI", "TI", 1, "CC-001", "SIM"])
-    ws.append(["Departamento Financeiro", "FIN", 2, "CC-002", "NÃO"])
-
-    ws2 = wb.create_sheet("Instruções")
-    ws2.append(["INSTRUÇÕES PARA IMPORTAÇÃO DE DEPARTAMENTOS"])
-    ws2.append([""])
-
-    ws2.append(["LISTA DE DEPARTAMENTOS EXISTENTES:"])
-    ws2.append(["ID", "Abreviatura", "Nome"])
-
-    for d in departments:
-        ws2.append([d["id"], d["abbreviation"], d["name"]])
-
-    output = BytesIO()
-    wb.save(output)
-    output.seek(0)
-    from datetime import datetime
-    filename = f"modelo_departamentos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-    return FileResponse(output, filename=filename)
 # -------------------------------------------------------------
 # LIST PAGINATED
 # -------------------------------------------------------------
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.get("/list", response=PaginatedDepartmentResponse)
 def list_departments(request, page: int = 1, page_size: int = 20):
     queryset = Department.objects.all().order_by('-id')
@@ -203,8 +178,6 @@ def list_departments(request, page: int = 1, page_size: int = 20):
 # -------------------------------------------------------------
 # GET BY ID
 # -------------------------------------------------------------
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.get("/{department_id}", response=DepartmentOut)
 def get_department(request, department_id: int):
     dep  = get_object_or_404(Department, id=department_id)
@@ -215,6 +188,7 @@ def get_department(request, department_id: int):
 # -------------------------------------------------------------
 @router.patch("/{department_id}/deactivate")
 def deactivate_department(request, department_id: int):
+    check_admin(request)
     department = get_object_or_404(Department, id=department_id)
     department.is_active = False
     department.save()
@@ -222,6 +196,7 @@ def deactivate_department(request, department_id: int):
 
 @router.patch("/{department_id}/activate")
 def activate_department(request, department_id: int):
+    check_admin(request)
     department = get_object_or_404(Department, id=department_id)
     department.is_active = True
     department.save()
@@ -230,10 +205,9 @@ def activate_department(request, department_id: int):
 # -------------------------------------------------------------
 # UPDATE
 # -------------------------------------------------------------
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.put("/{department_id}")
 def update_department(request, department_id: int, payload: DepartmentIn):
+    check_admin(request)
     department = get_object_or_404(Department, id=department_id)
     data = payload.dict()
 
@@ -260,10 +234,9 @@ def update_department(request, department_id: int, payload: DepartmentIn):
 # -------------------------------------------------------------
 # DELETE
 # -------------------------------------------------------------
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.delete("/{department_id}")
 def delete_department(request, department_id: int):
+    check_admin(request)
     department = get_object_or_404(Department, id=department_id)
     department.delete()
     return {"success": True}

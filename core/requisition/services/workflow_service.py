@@ -63,7 +63,7 @@ class WorkflowService:
         if not self._can_approve(approver, workflow.current_step):
             raise PermissionError(f"User {approver.username} cannot approve at step {workflow.current_step}")
 
-        # Se estivermos na etapa de análise pela Central, garantir que todos os itens têm preço antes de aprovar
+        # Se estivermos na etapa de análise pela Central, garantir regras de negócio
         if workflow.current_step == 'PURCHASING_ANALYSIS' and approver.groups.filter(name='PurchasingCentral').exists():
             try:
                 analysis = PurchasingAnalysisService(self.request)
@@ -72,6 +72,20 @@ class WorkflowService:
                     raise ValueError('Existem itens sem preço. Preencha os preços antes de aprovar.')
                 if totals.get('has_items_without_supplier'):
                     raise ValueError(f'Existem {totals.get("items_without_supplier_count")} item(s) sem fornecedor preferido. A Central deve indicar o fornecedor antes de aprovar.')
+                
+                # ----- REGRA DE ALÇADA (5.000.000 AOA) -----
+                # Central de Compras não pode aprovar se o total exceder o limite
+                limit = getattr(analysis, 'company_limit', 5000000.00)
+                current_total = totals.get('total_amount', 0)
+                if current_total > limit:
+                    raise ValueError(f'Valor total ({current_total}) excede o limite de alçada da Central de Compras ({limit}). Deve "Encaminhar para a Direção".')
+                
+                # Guardar snapshot de aprovação
+                self.request.approved_total = current_total
+                if hasattr(self.request, 'original_total') and self.request.original_total:
+                    self.request.savings_amount = self.request.original_total - current_total
+                self.request.save()
+                
             except Exception:
                 # Propagar erros de validação para o caller
                 raise

@@ -19,6 +19,10 @@ class JWTAuth(HttpBearer):
                 return None
 
             user = User.objects.get(id=user_id)
+            if not user.is_active:
+                # print(f"❌ Usuário inativo: {user.username}")
+                return None
+
             #print(f"✅ Usuário autenticado: {user.username} (ID: {user.id})")
             return user
 

@@ -2,22 +2,17 @@
 from ninja import Router, File
 from ninja.files import UploadedFile
 from ninja.pagination import paginate, PageNumberPagination
+from typing import List
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
 from django.utils import timezone
+from datetime import timedelta
 import logging
 import os
 
 logger = logging.getLogger(__name__)
-from rest_framework.decorators import authentication_classes, permission_classes
-from rest_framework.permissions import IsAuthenticated
-from rest_framework_simplejwt.authentication import JWTAuthentication
-
-from django.core.signing import TimestampSigner, BadSignature, SignatureExpired
-import mimetypes
-from django.http import FileResponse
-
-from .models import PurchaseRequest, PurchaseRequestItem, Attachment
+from core.login.jwt_auth import JWTAuth
+from .models import PurchaseRequest, PurchaseRequestItem, Attachment, Supplier, ItemCategory, Approval, PurchaseRequestAssignment
 from .schemas import *
 from core.requisition.schemas import BulkActionRequest, BulkActionResponse
 
@@ -27,15 +22,23 @@ from ..erp.models import Department
 from ..project.models import Project
 from .schemas import AnalyzeResponse
 
-router = Router(tags=["Requisition"])
+router = Router(tags=["Requisition"], auth=JWTAuth())
+
 
 # ============================================
-# DEBUG: Listar endpoints registrados (remover em produção)
+# STATUS GROUPS (Requester Context)
 # ============================================
-print("\n" + "="*50)
-print("ENDPOINTS REGISTRADOS NO ROUTER DE REQUISIÇÃO")
-print("="*50)
-
+REQUESTER_PENDING_STATUSES = [
+    'PENDING_PROJECT_APPROVAL', 'PENDING_DEPARTMENT_APPROVAL', 
+    'PENDING_PURCHASING', 'PENDING_DIRECTOR_APPROVAL', 
+    'AWAITING_REQUESTER_DECISION', 'PARTIALLY_APPROVED'
+]
+REQUESTER_APPROVED_STATUSES = [
+    'APPROVED', 'ORDERED', 'PARTIALLY_RECEIVED', 'COMPLETED'
+]
+REQUESTER_REJECTED_STATUSES = [
+    'REJECTED', 'CANCELLED'
+]
 
 # ============================================
 # AVAILABLE CONTEXTS
@@ -138,6 +141,7 @@ def create_purchase_request(request, payload: PurchaseRequestCreate):
             unit_price=item_data.unit_price,
             urgency_level=item_data.urgency_level,
             preferred_supplier=(item_data.preferred_supplier.strip() if getattr(item_data, 'preferred_supplier', None) and isinstance(item_data.preferred_supplier, str) else None),
+            supplier_id=getattr(item_data, 'supplier_id', None),
             delivery_deadline=getattr(item_data, 'delivery_deadline', None),
             special_status=item_data.special_status,
             observations=item_data.observations,
@@ -207,7 +211,8 @@ def get_requisition_counts(request, assigned_to_me: bool = False, assignment_sta
             Q(items__urgency_level__in=['HIGH', 'CRITICAL']) |
             Q(required_date__isnull=False, required_date__lte=limit_date)
         ).exclude(
-            status__in=['COMPLETED', 'REJECTED', 'CANCELLED']
+            # Contadores (Badges) focam apenas no que é acionável (atualmente em aberto)
+            status__in=REQUESTER_APPROVED_STATUSES + REQUESTER_REJECTED_STATUSES
         ).distinct()
 
     if overdue:
@@ -215,38 +220,52 @@ def get_requisition_counts(request, assigned_to_me: bool = False, assignment_sta
         queryset = queryset.filter(
             required_date__lt=today
         ).exclude(
-            status__in=['COMPLETED', 'REJECTED', 'CANCELLED']
+            # Contadores (Badges) focam apenas no que é acionável (atualmente em aberto)
+            status__in=REQUESTER_APPROVED_STATUSES + REQUESTER_REJECTED_STATUSES
         )
         
     return {"count": queryset.count()}
 
 
 @router.get("/counts-by-status", response=dict)
-def get_counts_by_status(request):
+def get_counts_by_status(request, role_context: str = 'requester'):
     """
-    Retorna contagem de requisições do PRÓPRIO utilizador agrupadas por status (para banners).
-    Os banners de aprovadas/rejeitadas são para o solicitante saber o estado das SUAS requisições.
+    Retorna contagem de requisições agrupadas por status.
+    role_context: 'requester' (Minhas RCs) ou 'approver' (Minhas Aprovações)
     """
     user = request.auth
 
-    # Contar apenas as requisições submetidas pelo próprio utilizador
-    my_requests = PurchaseRequest.objects.filter(requested_by=user)
-
-    return {
-        "all": my_requests.count(),
-        "pending": my_requests.filter(status__startswith='PENDING').count(),
-        "approved": my_requests.filter(status='APPROVED').count(),
-        "rejected": my_requests.filter(status='REJECTED').count(),
-        "draft": my_requests.filter(status='DRAFT').count(),
-    }
+    if role_context == 'approver':
+        # Base: Tudo onde eu tenho um assignment ou já aprovei/rejeitei
+        base_qs = PurchaseRequest.objects.filter(
+            Q(assignments__approver=user) | Q(approvals__approver=user)
+        ).distinct()
+        
+        return {
+            "all": base_qs.count(),
+            "pending": base_qs.filter(assignments__approver=user, assignments__status='PENDING').distinct().count(),
+            "approved": base_qs.filter(approvals__approver=user, approvals__action='APPROVE').distinct().count(),
+            "rejected": base_qs.filter(approvals__approver=user, approvals__action='REJECT').distinct().count(),
+            "draft": 0, # Aprovações não têm rascunho
+        }
+    else:
+        # Contar apenas as requisições submetidas pelo próprio utilizador (Padrão)
+        my_requests = PurchaseRequest.objects.filter(requested_by=user)
+        return {
+            "all": my_requests.count(),
+            "pending": my_requests.filter(status__in=REQUESTER_PENDING_STATUSES).count(),
+            "approved": my_requests.filter(status__in=REQUESTER_APPROVED_STATUSES).count(),
+            "rejected": my_requests.filter(status__in=REQUESTER_REJECTED_STATUSES).count(),
+            "draft": my_requests.filter(status='DRAFT').count(),
+        }
 
 
 
 @router.get("/list", response=List[PurchaseRequestSchema])
 @paginate(PageNumberPagination, page_size=20)
 def list_purchase_requests(request, status: str = None, context: str = None, urgency: str = None, 
-                           search: str = None, tab: str = None, assigned_to_me: bool = False, 
-                           assignment_status: str = None,
+                           search: str = None, tab: str = None, 
+                           role_context: str = 'requester',
                            edited_by_purchasing: bool = False, is_urgent: bool = False, overdue: bool = False,
                            reference_month: str = None, cost_center: str = None):
     """
@@ -255,98 +274,52 @@ def list_purchase_requests(request, status: str = None, context: str = None, urg
     user = request.auth
     queryset = PurchaseRequest.objects.all()
 
-    # Filtrar por permissões base
-    if not user.is_administrator:
-        if user.is_purchasing_central:
-            queryset = queryset.filter(
-                Q(status__in=['PENDING_PURCHASING', 'PENDING_DIRECTOR_APPROVAL', 'APPROVED', 'REJECTED']) |
-                Q(requested_by=user)
-            )
-        elif user.is_director or user.is_deputy_director:
-            queryset = queryset.filter(
-                Q(status__in=['PENDING_DIRECTOR_APPROVAL', 'APPROVED', 'REJECTED']) |
-                Q(requested_by=user)
-            )
-        else:
-            # Pessoas normais veem as próprias requisições OU as que lhe foram atribuídas (Assignments)
-            queryset = queryset.filter(
-                Q(requested_by=user) | 
-                Q(assignments__approver=user)
-            ).distinct()
-
-    # Lógica de ABAS (tab)
-    if tab:
-        if tab == 'draft':
-            queryset = queryset.filter(status='DRAFT')
-        elif tab == 'pending':
-            if user.is_purchasing_central:
-                # Para central, se enviou para direção não é pendente para eles
-                queryset = queryset.filter(status='PENDING_PURCHASING')
-            elif user.is_director or user.is_deputy_director:
-                queryset = queryset.filter(status='PENDING_DIRECTOR_APPROVAL')
-            else:
-                queryset = queryset.filter(status__startswith='PENDING')
-        elif tab == 'approved':
-            if user.is_purchasing_central:
-                # O que já mandaram para direção, consideram aprovado por eles, e o que a direção aprovou
-                queryset = queryset.filter(status__in=['PENDING_DIRECTOR_APPROVAL', 'APPROVED'])
-            else:
-                queryset = queryset.filter(status='APPROVED')
-        elif tab == 'rejected':
-            queryset = queryset.filter(status='REJECTED')
-
-    # Filtro "Minhas aprovações" (assigned_to_me ou assignment_status específico)
-    if assigned_to_me or assignment_status:
-        if user.is_purchasing_central:
-            # Para Central, filters simples por status da RC costumam bastar,
-            # mas vamos honrar o assignment_status se vier.
-            if assignment_status == 'COMPLETED':
-                 queryset = queryset.filter(approvals__approver=user, approvals__action__in=['APPROVE', 'FORWARD'])
-            elif assignment_status == 'REJECTED':
-                 queryset = queryset.filter(approvals__approver=user, approvals__action='REJECT')
-            else:
-                 queryset = queryset.filter(status='PENDING_PURCHASING')
-        elif user.is_director or user.is_deputy_director:
-            if assignment_status == 'COMPLETED':
-                 queryset = queryset.filter(approvals__approver=user, approvals__action='APPROVE')
-            elif assignment_status == 'REJECTED':
-                 queryset = queryset.filter(approvals__approver=user, approvals__action='REJECT')
-            else:
-                 queryset = queryset.filter(status='PENDING_DIRECTOR_APPROVAL')
-        else:
-            # Filtragem exata e eficiente usando a nova tabela de Assignments
-            status_to_filter = assignment_status if assignment_status else 'PENDING'
-            queryset = queryset.filter(
-                assignments__approver=user, 
-                assignments__status=status_to_filter
-            ).distinct()
-
-    # Filtro Editadas
-    # Filtro Editadas
-    if edited_by_purchasing:
-        queryset = queryset.filter(last_edited_by_purchasing_at__isnull=False)
-
-    # Filtros Rápidos (Urgentes e Atrasadas)
-    if is_urgent:
-        from datetime import timedelta
-        limit_date = timezone.now().date() + timedelta(days=2)
+    # 1. Filtrar por contexto de papel (Solicitante vs Aprovador)
+    if role_context == 'requester':
+        queryset = queryset.filter(requested_by=user)
+    elif role_context == 'approver':
         queryset = queryset.filter(
-            Q(items__urgency_level__in=['HIGH', 'CRITICAL']) |
-            Q(required_date__isnull=False, required_date__lte=limit_date)
-        ).exclude(
-            status__in=['COMPLETED', 'REJECTED', 'CANCELLED']
+            Q(assignments__approver=user) | Q(approvals__approver=user)
         ).distinct()
-        
-    if overdue:
-        # A data necessária já passou e não está completo
-        today = timezone.now().date()
-        queryset = queryset.filter(
-            required_date__lt=today
-        ).exclude(
-            status__in=['COMPLETED', 'REJECTED', 'CANCELLED']
-        )
+    else:
+        # Fallback de permissões base se nenhum contexto for passado
+        if not user.is_administrator:
+            if user.is_purchasing_central:
+                queryset = queryset.filter(
+                    Q(status__in=['PENDING_PURCHASING', 'PENDING_DIRECTOR_APPROVAL', 'APPROVED', 'REJECTED']) |
+                    Q(requested_by=user)
+                )
+            elif user.is_director or user.is_deputy_director:
+                queryset = queryset.filter(
+                    Q(status__in=['PENDING_DIRECTOR_APPROVAL', 'APPROVED', 'REJECTED']) |
+                    Q(requested_by=user)
+                )
+            else:
+                queryset = queryset.filter(
+                    Q(requested_by=user) | Q(assignments__approver=user)
+                ).distinct()
 
-    # Filtros exatos
+    # 2. Lógica de ABAS (Status/Ações)
+    if tab:
+        if tab == 'pending':
+            if role_context == 'approver':
+                queryset = queryset.filter(assignments__approver=user, assignments__status='PENDING').distinct()
+            else:
+                queryset = queryset.filter(status__in=REQUESTER_PENDING_STATUSES)
+        elif tab == 'approved':
+            if role_context == 'approver':
+                queryset = queryset.filter(approvals__approver=user, approvals__action='APPROVE').distinct()
+            else:
+                queryset = queryset.filter(status__in=REQUESTER_APPROVED_STATUSES)
+        elif tab == 'rejected':
+            if role_context == 'approver':
+                queryset = queryset.filter(approvals__approver=user, approvals__action='REJECT').distinct()
+            else:
+                queryset = queryset.filter(status__in=REQUESTER_REJECTED_STATUSES)
+        elif tab == 'draft':
+            queryset = queryset.filter(status='DRAFT')
+
+    # 3. Filtros Adicionais (Específicos da RC)
     if status:
         queryset = queryset.filter(status=status)
     if context:
@@ -356,45 +329,84 @@ def list_purchase_requests(request, status: str = None, context: str = None, urg
     if cost_center:
         queryset = queryset.filter(cost_center__icontains=cost_center)
     if urgency:
-        # Filtro de urgência antigo (mantido para compatibilidade, se necessário)
-        queryset = queryset.filter(items__urgency_level=urgency).distinct()
+        queryset = queryset.filter(urgency_level=urgency)
 
-    # Filtro de Busca Livre
-    if search:
-        # Extrai número do código (suporta "RC-000001", "RC-TI-2026-000001" ou apenas "1")
-        search_id = None
-        search_upper = search.strip().upper()
+    # 4. Filtros Rápidos (Urgentes e Atrasadas)
+    if is_urgent:
+        # Próximo da data (2 dias) ou marcado como urgente/crítico
+        limit_date = timezone.now().date() + timedelta(days=2)
+        queryset = queryset.filter(
+            Q(items__urgency_level__in=['HIGH', 'CRITICAL']) |
+            Q(required_date__isnull=False, required_date__lte=limit_date)
+        ).distinct() # Nota: Na listagem permitimos ver urgentes mesmo aprovadas (Histórico)
         
-        # Tenta extrair a parte numérica final
-        if '-' in search_upper:
-            parts = search_upper.split('-')
-            last_part = parts[-1].lstrip('0') or '0'
-            try:
-                search_id = int(last_part)
-            except ValueError:
-                pass
-        else:
-            # Caso o utilizador digite apenas o número ou "RC0001"
-            search_clean = search_upper.lstrip('RC').lstrip('0') or '0'
-            try:
-                search_id = int(search_clean)
-            except ValueError:
-                pass
+    if overdue:
+        # A data necessária já passou
+        today = timezone.now().date()
+        queryset = queryset.filter(
+            required_date__lt=today
+        ) # Nota: Na listagem permitimos ver atrasadas mesmo aprovadas (Histórico)
 
-        base_filter = (
+    # 5. Busca Livre
+    if search:
+        queryset = queryset.filter(
+            Q(code__icontains=search) |
+            Q(requested_by__full_name__icontains=search) |
+            Q(requested_by__username__icontains=search) |
+            Q(items__description__icontains=search) |
             Q(justification__icontains=search) |
             Q(erp_reference__icontains=search) |
-            Q(cost_center__icontains=search) |
-            Q(items__description__icontains=search) |
-            Q(requested_by__first_name__icontains=search) |
-            Q(requested_by__last_name__icontains=search)
-        )
-        if search_id:
-            base_filter |= Q(id=search_id)
+            Q(cost_center__icontains=search)
+        ).distinct()
 
-        queryset = queryset.filter(base_filter).distinct()
+    # 6. Anotações para UI (Can Approve, My Assignment)
+    from django.db.models import Case, When, Value, BooleanField, Subquery, OuterRef
 
-    return queryset.order_by('-created_at')
+    can_approve_q = Q()
+    if getattr(user, 'is_purchasing_central', False):
+        can_approve_q |= Q(status='PENDING_PURCHASING')
+    if getattr(user, 'is_director', False) or getattr(user, 'is_deputy_director', False):
+        can_approve_q |= Q(status='PENDING_DIRECTOR_APPROVAL')
+
+    # Se o utilizar tem assignment PENDING, também pode aprovar
+    can_approve_q |= Q(assignments__approver=user, assignments__status='PENDING')
+
+    my_assignment = PurchaseRequestAssignment.objects.filter(
+        purchase_request=OuterRef('pk'),
+        approver=user
+    ).order_by('-assigned_at')
+
+    queryset = queryset.annotate(
+        annotated_can_approve=Case(
+            When(can_approve_q, then=Value(True)),
+            default=Value(False),
+            output_field=BooleanField()
+        ),
+        annotated_my_assignment_status=Subquery(my_assignment.values('status')[:1]),
+        annotated_my_assignment_id=Subquery(my_assignment.values('id')[:1])
+    )
+
+    return queryset.distinct().order_by('-created_at')
+
+@router.get("/suppliers", response=List[SupplierSchema])
+def list_suppliers(request, search: Optional[str] = None):
+    """
+    Lista fornecedores ativos. Permite busca por nome ou código.
+    """
+    qs = Supplier.objects.filter(is_active=True)
+    if search:
+        qs = qs.filter(Q(name__icontains=search) | Q(code__icontains=search))
+    return list(qs)
+
+@router.post("/suppliers", response={201: SupplierSchema, 400: MessageResponse})
+def create_supplier(request, payload: SupplierCreateSchema):
+    """
+    Cria um novo fornecedor.
+    """
+    if Supplier.objects.filter(code=payload.code).exists():
+        return 400, {"message": "Já existe um fornecedor com este código."}
+    supplier = Supplier.objects.create(**payload.dict())
+    return 201, supplier
 
 @router.get("/{request_id}", response=PurchaseRequestSchema)
 def get_purchase_request(request, request_id: int):
@@ -402,6 +414,7 @@ def get_purchase_request(request, request_id: int):
     Detalhe de uma requisição
     """
     purchase_request = get_object_or_404(PurchaseRequest, id=request_id)
+    purchase_request._current_user = request.auth  # Injectar user para contornar contexto do Ninja
 
     # Verificar permissão
     user = request.auth
@@ -472,6 +485,7 @@ def update_purchase_request(request, request_id: int, payload: PurchaseRequestUp
                 unit_price=item_data.unit_price,
                 urgency_level=item_data.urgency_level,
                 preferred_supplier=(item_data.preferred_supplier.strip() if getattr(item_data, 'preferred_supplier', None) and isinstance(item_data.preferred_supplier, str) else None),
+                supplier_id=getattr(item_data, 'supplier_id', None),
                 delivery_deadline=getattr(item_data, 'delivery_deadline', None),
                 special_status=item_data.special_status,
                 observations=item_data.observations,
@@ -527,6 +541,7 @@ def clone_purchase_request(request, request_id: int, payload: CloneRequestPayloa
                 tax_rate=item.tax_rate,
                 base_price=item.base_price,
                 preferred_supplier=item.preferred_supplier,
+                supplier_id=item.supplier_id,
                 special_status=item.special_status,
                 observations=item.observations,
                 delivery_deadline=item.delivery_deadline
@@ -605,6 +620,25 @@ def upload_attachment(request, request_id: int, file: UploadedFile = File(...), 
     return 200, {"message": "Ficheiro anexado com sucesso", "id": attachment.id}
 
 
+@router.delete("/{request_id}", response={200: MessageResponse, 400: MessageResponse, 403: MessageResponse})
+def delete_request(request, request_id: int):
+    """
+    Eliminar uma requisição (Apenas se nunca foi submetida)
+    """
+    purchase_request = get_object_or_404(PurchaseRequest, id=request_id)
+    user = request.auth
+
+    if purchase_request.requested_by != user and not getattr(user, 'is_administrator', False):
+         return 403, {"message": "Sem permissão para eliminar esta requisição."}
+
+    # SE JÁ TEVE SUBMISSÕES (Auditoria / Central de Compras já viu) -> Bloquear!
+    if purchase_request.submitted_at is not None:
+         return 400, {"message": "Não é possível eliminar uma requisição que já entrou no ciclo de aprovação. Cancele-a em vez disso para manter o histórico."}
+
+    purchase_request.delete()
+    return 200, {"message": "Requisição eliminada com sucesso."}
+
+
 @router.delete("/attachments/{attachment_id}", response={200: MessageResponse, 400: MessageResponse, 403: MessageResponse})
 def delete_attachment(request, attachment_id: int):
     """
@@ -644,9 +678,25 @@ def download_attachment(request, attachment_id: int, token: str):
     """
     Download de um anexo através de um URL pré-assinado (presigned URL)
     """
+    user = request.auth  # Garante que o utilizador está autenticado via Router auth=JWTAuth()
     attachment = get_object_or_404(Attachment, id=attachment_id)
     
+    # 🔐 Adicional: Verificar se o utilizador tem permissão para ver a requisição deste anexo
+    purchase_request = attachment.purchase_request
+    
+    is_authorized = False
+    if user.is_administrator or user.is_purchasing_central or purchase_request.requested_by == user:
+        is_authorized = True
+    elif user.is_director or user.is_deputy_director:
+        is_authorized = True
+    elif purchase_request.assignments.filter(approver=user).exists():
+        is_authorized = True
+    
+    if not is_authorized:
+         return 403, {"message": "Você não tem permissão para aceder a este ficheiro."}
+
     signer = TimestampSigner()
+
     try:
         # Verifica assinatura e garante que tem menos de 30 minutos (1800 segundos)
         original_id = signer.unsign(token, max_age=1800)
@@ -728,8 +778,9 @@ def bulk_submit_requests(request, payload: BulkSubmitSchema):
                 successful_ids.append(request_id)
                 
             except Exception as e:
-                print(f"Erro ao submeter requisição {request_id} em lote: {e}")
+                logger.error(f"Erro ao submeter requisição {request_id} em lote: {e}")
                 failed_count += 1
+
                 
     return {
         "success": len(successful_ids) > 0,
@@ -746,6 +797,55 @@ def approve_request(request, request_id: int, payload: ApprovalAction):
     purchase_request = get_object_or_404(PurchaseRequest, id=request_id)
     user = request.auth
 
+    # ---- NOVO: Editar itens antes de aprovar (Edição por Aprovadores) ----
+    if payload.items:
+        changes = []
+        items_list = list(purchase_request.items.all()) # Para garantir indexação estável
+        for i, item_data in enumerate(payload.items):
+            if i < len(items_list):
+                item = items_list[i]
+                old_desc = item.description or ''
+                old_qty = item.quantity or 0
+                old_price = item.unit_price or 0
+                old_values = f"'{old_desc}' ({old_qty} x {old_price})"
+                
+                # Campos editáveis pelo aprovador
+                item.description = item_data.description
+                item.quantity = item_data.quantity
+                item.unit_price = item_data.unit_price
+                if getattr(item_data, 'observations', None) is not None:
+                    item.observations = item_data.observations
+                
+                # Fornecedor Preferencial (Opcional para gestor)
+                if getattr(item_data, 'preferred_supplier', None) is not None:
+                    item.preferred_supplier = item_data.preferred_supplier.strip() if item_data.preferred_supplier else None
+                
+                # Lógica de Status e Rejeição
+                if getattr(item_data, 'status', None) is not None:
+                    if item.status != item_data.status:
+                        changes.append(f"Status do Item {i+1}: {item.status} → {item_data.status}")
+                    item.status = item_data.status
+                    if item_data.status == 'REJECTED':
+                        item.rejection_reason = getattr(item_data, 'rejection_reason', '')
+                    else:
+                        item.rejection_reason = ''
+                        item.is_locked = False
+                        
+                item.save()
+                new_values = f"'{item_data.description}' ({item_data.quantity} x {item_data.unit_price})"
+                if old_values != new_values:
+                    changes.append(f"Item {i+1}: {old_values} → {new_values}")
+
+        if changes:
+             # Recalcular Total apenas com itens válidos
+             total = sum([itm.total_price or 0 for itm in purchase_request.items.all() if itm.status != 'REJECTED'])
+             purchase_request.total_amount = total
+             purchase_request.save()
+             
+             # Adicionar nota à aprovação
+             prefix = "[Edição efetuada antes de aprovar]:\n"
+             payload.comments = f"{payload.comments}\n\n{prefix}" + "\n".join(changes) if payload.comments else f"{prefix}" + "\n".join(changes)
+
     workflow = WorkflowService(purchase_request)
 
     try:
@@ -756,7 +856,314 @@ def approve_request(request, request_id: int, payload: ApprovalAction):
     except Exception as e:
         return 400, {"message": f"Erro ao aprovar: {str(e)}"}
 
+@router.post("/{request_id}/finalize-review", response=MessageResponse)
+def finalize_review(request, request_id: int, payload: ApprovalAction):
+    """
+    Finaliza a revisão da Central de Compras.
+    Decide automaticamente se aprova ou encaminha para a Direção com base no limite (5M).
+    """
+    from .services.PurchasingAnalysisService import PurchasingAnalysisService
+    from .services.workflow_service import WorkflowService
+
+    purchase_request = get_object_or_404(PurchaseRequest, id=request_id)
+    user = request.auth
+
+    if not user.groups.filter(name='PurchasingCentral').exists():
+        return 403, {"message": "Apenas membros da Central de Compras podem finalizar a revisão."}
+
+    # Atualizar itens se vierem no payload (Edição inline)
+    if payload.items:
+        changes = []
+        items_list = list(purchase_request.items.all())
+        for i, item_data in enumerate(payload.items):
+            if i < len(items_list):
+                item = items_list[i]
+                old_desc = item.description or ''
+                old_qty = item.quantity or 0
+                old_price = item.unit_price or 0
+                old_values = f"'{old_desc}' ({old_qty} x {old_price})"
+                
+                item.description = item_data.description
+                item.quantity = item_data.quantity
+                item.unit_price = item_data.unit_price
+                if getattr(item_data, 'observations', None) is not None:
+                    item.observations = item_data.observations
+                
+                if getattr(item_data, 'preferred_supplier', None) is not None:
+                    item.preferred_supplier = item_data.preferred_supplier.strip() if item_data.preferred_supplier else None
+                
+                # Lógica de Status e Rejeição
+                if getattr(item_data, 'status', None) is not None:
+                    if item.status != item_data.status:
+                        changes.append(f"Status do Item {i+1}: {item.status} → {item_data.status}")
+                    item.status = item_data.status
+                    if item_data.status == 'REJECTED':
+                        item.rejection_reason = getattr(item_data, 'rejection_reason', '')
+                    else:
+                        item.rejection_reason = ''
+                        item.is_locked = False
+                        
+                item.save()
+                new_values = f"'{item_data.description}' ({item_data.quantity} x {item_data.unit_price})"
+                if old_values != new_values:
+                    changes.append(f"Item {i+1}: {old_values} → {new_values}")
+
+        if changes:
+             total = sum([itm.total_price or 0 for itm in purchase_request.items.all() if itm.status != 'REJECTED'])
+             purchase_request.total_amount = total
+             purchase_request.save()
+             
+             # Adicionar nota à aprovação
+             prefix = "[Edição efetuada na finalização]:\n"
+             payload.comments = f"{payload.comments}\n\n{prefix}" + "\n".join(changes) if payload.comments else f"{prefix}" + "\n".join(changes)
+             
+             # Notificar via WebSocket (Realtime Event)
+             try:
+                 from .services.notification_service import NotificationService
+                 NotificationService().notify_item_updated(purchase_request, user)
+             except Exception:
+                 pass
+
+    # Calcular totais atuais
+    analysis = PurchasingAnalysisService(purchase_request)
+    totals = analysis.calculate_totals()
+    current_total = totals.get('total_amount', 0)
+
+    workflow = WorkflowService(purchase_request)
+
+    try:
+        # Se houver itens REJECTED, aguardar decisão do solicitante antes de aprovar/encaminhar
+        if purchase_request.items.filter(status='REJECTED').exists():
+            from django.utils import timezone
+            purchase_request.status = 'AWAITING_REQUESTER_DECISION'
+            purchase_request.awaiting_decision_since = timezone.now()
+            purchase_request.save()
+            
+            # Notificar via WebSocket
+            try:
+                from .services.notification_service import NotificationService
+                NotificationService().notify_item_updated(purchase_request, user)
+            except Exception:
+                pass
+                
+            # Audit Log
+            from .services.audit_service import AuditService
+            AuditService.log_change(
+                purchase_request=purchase_request,
+                user=user,
+                action_type='REVIEW_PARCIAL',
+                description='Revisão efetuada pela Central. Itens rejeitados, aguardando decisão do solicitante.',
+                previous_values={"status_anterior": "PENDING_PURCHASING"},
+                new_values={
+                    "status_novo": purchase_request.status, 
+                    "itens_rejeitados": [i.description for i in purchase_request.items.filter(status='REJECTED')]
+                }
+            )
+            return 200, {"message": "Revisão efetuada. Aguardando decisão do solicitante devido a itens rejeitados.", "status": purchase_request.status}
+
+        # Regra de Alçada
+        limit = getattr(analysis, 'company_limit', 5000000.00)
+        
+        if current_total > limit:
+            # Acima do limite -> Reencaminhar Obrigatório
+            workflow.forward_to_director(user, payload.comments or "Encaminhado automaticamente: Excede limite de alçada.")
+            
+            from .services.audit_service import AuditService
+            AuditService.log_change(
+                purchase_request, user, 'FORWARD_DIRECTOR',
+                'Encaminhado para Direção devido a limite de alçada excedido.',
+                {"valor_anterior": float(analysis.original_total) if getattr(analysis, 'original_total', None) else 0},
+                {"valor_novo": float(current_total)}
+            )
+            return 200, {"message": f"Revisão finalizada. Valor ({current_total}) excede o limite. Encaminhado para a Direção.", "status": purchase_request.status}
+        else:
+            # Dentro do limite -> Aprovar
+            workflow.approve(user, payload.comments)
+            
+            from .services.audit_service import AuditService
+            AuditService.log_change(
+                purchase_request, user, 'APPROVE_CENTRAL',
+                'Revisão finalizada e requisição aprovada pela Central.',
+                {},
+                {"valor_final": float(current_total)}
+            )
+            return 200, {"message": "Revisão finalizada e requisição aprovada.", "status": purchase_request.status}
+
+    except Exception as e:
+         return 400, {"message": f"Erro ao finalizar revisão: {str(e)}"}
+
+@router.post("/{request_id}/requester-decision", response=MessageResponse)
+def requester_decision(request, request_id: int, payload: RequesterDecisionAction):
+    """
+    Decisão do Solicitante sobre itens rejeitados na aprovação parcial.
+    - ACCEPT_APPROVED: Cancela itens rejeitados e avança.
+    - RESUBMIT_REJECTED: Permite editar itens rejeitados (volta a DRAFT).
+    """
+    purchase_request = get_object_or_404(PurchaseRequest, id=request_id)
+    user = request.auth
+
+    if purchase_request.requested_by != user:
+        return 403, {"message": "Apenas o criador da requisição pode tomar esta decisão."}
+
+    if purchase_request.status != 'AWAITING_REQUESTER_DECISION':
+        return 400, {"message": "Esta requisição não está no estado de 'Aguardar Decisão do Solicitante'."}
+
+    from .services.workflow_service import WorkflowService
+    workflow = WorkflowService(purchase_request)
+
+    if payload.action == 'ACCEPT_APPROVED':
+        # 1. Tratar itens REJECTED
+        items_list = list(purchase_request.items.all())
+        for item in items_list:
+            if item.status == 'REJECTED':
+                item.is_locked = True
+                item.save()
+        
+        # 2. Recalcular Total e Poupança
+        total = sum([itm.total_price or 0 for itm in items_list if itm.status != 'REJECTED'])
+        old_total = purchase_request.total_amount
+        purchase_request.total_amount = total
+        purchase_request.approved_total = total
+        purchase_request.savings_amount = old_total - total
+        
+        # 3. Atualizar Status ou Encaminhar para Direção (Regra de Alçada)
+        from .services.PurchasingAnalysisService import PurchasingAnalysisService
+        analysis = PurchasingAnalysisService(purchase_request)
+        limit = getattr(analysis, 'company_limit', 5000000.00)
+
+        if total > limit:
+            workflow.forward_to_director(user, payload.comments or "Decisão do solicitante registada. Valor excede o limite.")
+            purchase_request.save()  # Just ensuring it is flushed
+            
+            # Notificar via WebSocket
+            try:
+                NotificationService().notify_item_updated(purchase_request, user)
+            except Exception:
+                pass
+                
+            # Audit Log
+            from .services.audit_service import AuditService
+            AuditService.log_change(
+                purchase_request, user, 'REQUESTER_DECISION',
+                'Solicitante aceitou itens aprovados. Encaminhado para Direção por exceder limite.',
+                {"status_anterior": "AWAITING_REQUESTER_DECISION"},
+                {"status_novo": purchase_request.status, "total_novo": float(total)}
+            )
+                
+            return 200, {"message": "Decisão registada. Valor total (visto aprovados) ainda excede o limite. Encaminhado para a Direção.", "status": purchase_request.status}
+        else:
+            purchase_request.status = 'PARTIALLY_APPROVED'
+            purchase_request.save()
+
+        # Audit Log
+        from .services.audit_service import AuditService
+        AuditService.log_change(
+            purchase_request, user, 'REQUESTER_DECISION',
+            'Solicitante aceitou itens aprovados. Requisição aprovada parcialmente.',
+            {"status_anterior": "AWAITING_REQUESTER_DECISION"},
+            {"status_novo": "PARTIALLY_APPROVED", "total_novo": float(total)}
+        )
+
+        # Notificar via WebSocket (Realtime)
+        try:
+            from .services.notification_service import NotificationService
+            NotificationService().notify_item_updated(purchase_request, user)
+        except Exception:
+            pass
+
+        return 200, {"message": "Decisão registada. Continuando com os itens aprovados.", "status": purchase_request.status}
+
+    elif payload.action == 'RESUBMIT_REJECTED':
+        # Desbloquear itens rejeitados para correção
+        for item in purchase_request.items.filter(status='REJECTED'):
+            item.is_locked = False
+            item.status = 'PENDING'
+            item.save()
+            
+        purchase_request.status = 'DRAFT'
+        purchase_request.save()
+
+        try:
+            from .services.notification_service import NotificationService
+            NotificationService().notify_item_updated(purchase_request, user)
+        except Exception:
+            pass
+
+        return 200, {"message": "Requisição retrocedida para rascunho para correção.", "status": purchase_request.status}
+
+@router.post("/{request_id}/save-edits", response=MessageResponse)
+def save_edits(request, request_id: int, payload: ApprovalAction):
+    """
+    Guardar edições nos itens sem aprovar (por Aprovadores ou Central)
+    """
+    purchase_request = get_object_or_404(PurchaseRequest, id=request_id)
+    user = request.auth
+
+    can_edit = False
+    if user.is_purchasing_central and purchase_request.status in ['PENDING_PURCHASING', 'PENDING_DIRECTOR_APPROVAL']:
+        can_edit = True
+    else:
+        assignment = purchase_request.assignments.filter(approver=user, status='PENDING').first()
+        if assignment:
+            can_edit = True
+
+    if not can_edit and not user.is_administrator:
+        return 403, {"message": "Sem permissão para editar esta requisição"}
+
+    if not payload.items:
+        return 400, {"message": "Nenhum item fornecido para edição"}
+
+    changes = []
+    items_list = list(purchase_request.items.all())
+    for i, item_data in enumerate(payload.items):
+        if i < len(items_list):
+            item = items_list[i]
+            old_desc = item.description or ''
+            old_qty = item.quantity or 0
+            old_price = item.unit_price or 0
+            old_values = f"'{old_desc}' ({old_qty} x {old_price})"
+            
+            item.description = item_data.description
+            item.quantity = item_data.quantity
+            item.unit_price = item_data.unit_price
+            if getattr(item_data, 'observations', None) is not None:
+                item.observations = item_data.observations
+            
+            if getattr(item_data, 'preferred_supplier', None) is not None:
+                item.preferred_supplier = item_data.preferred_supplier.strip() if item_data.preferred_supplier else None
+            
+            # Lógica de Status e Rejeição
+            if getattr(item_data, 'status', None) is not None:
+                if item.status != item_data.status:
+                    changes.append(f"Status do Item {i+1}: {item.status} → {item_data.status}")
+                item.status = item_data.status
+                if item_data.status == 'REJECTED':
+                    item.rejection_reason = getattr(item_data, 'rejection_reason', '')
+                else:
+                    item.rejection_reason = ''
+                    item.is_locked = False
+                    
+            item.save()
+            new_values = f"'{item_data.description}' ({item_data.quantity} x {item_data.unit_price})"
+            if old_values != new_values:
+                changes.append(f"Item {i+1}: {old_values} → {new_values}")
+
+    if changes:
+         total = sum([itm.total_price or 0 for itm in purchase_request.items.all() if itm.status != 'REJECTED'])
+         purchase_request.total_amount = total
+         purchase_request.save()
+
+         # Notificar via WebSocket (Realtime Event)
+         try:
+             from .services.notification_service import NotificationService
+             NotificationService().notify_item_updated(purchase_request, user)
+         except Exception:
+             pass
+
+    return 200, {"message": "Edições guardadas com sucesso"}
+
 @router.post("/{request_id}/rejeitar", response=MessageResponse)
+
 def reject_request(request, request_id: int, payload: RejectAction):
     """
     Rejeitar requisição
@@ -857,6 +1264,8 @@ def purchasing_edit(request, request_id: int, payload: PurchaseRequestUpdate):
                 item.observations = item_data.observations
                 item.tax_rate = getattr(item_data, 'tax_rate', None)
                 item.base_price = getattr(item_data, 'base_price', None)
+                if getattr(item_data, 'supplier_id', None) is not None:
+                    item.supplier_id = item_data.supplier_id
                 item.save()
                 new_values = f"{item_data.quantity} x {item_data.unit_price}" if item_data.quantity and item_data.unit_price else "sem preço"
                 changes.append(f"Item {i + 1}: {old_values} → {new_values}")
@@ -869,6 +1278,7 @@ def purchasing_edit(request, request_id: int, payload: PurchaseRequestUpdate):
                     unit_price=item_data.unit_price,
                     urgency_level=item_data.urgency_level,
                     preferred_supplier=(item_data.preferred_supplier.strip() if getattr(item_data, 'preferred_supplier', None) else None),
+                    supplier_id=getattr(item_data, 'supplier_id', None),
                     delivery_deadline=getattr(item_data, 'delivery_deadline', None),
                     special_status=item_data.special_status,
                     observations=item_data.observations,
@@ -879,8 +1289,18 @@ def purchasing_edit(request, request_id: int, payload: PurchaseRequestUpdate):
 
         # Recalcular total
         total = sum([item.total_price or 0 for item in purchase_request.items.all()])
+        old_total = purchase_request.total_amount
         purchase_request.total_amount = total
         purchase_request.save()
+
+        # Audit Log
+        from .services.audit_service import AuditService
+        AuditService.log_change(
+            purchase_request, user, 'PURCHASING_EDIT',
+            'Itens/Preços editados pela Central de Compras.',
+            {"total_anterior": float(old_total)},
+            {"total_novo": float(total), "alteracoes": changes}
+        )
 
         # Registar edição detalhada
         workflow.purchasing_edit(user, "; ".join(changes))
@@ -995,8 +1415,6 @@ def purchasing_bulk_action(request, payload: BulkActionRequest):
 # WORKFLOW & APPROVALS
 # ============================================
 
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
 @router.get("/{request_id}/workflow", response={200: WorkflowSchema, 404: MessageResponse, 403: MessageResponse}
 )
 def get_workflow(request, request_id: int):
@@ -1097,3 +1515,297 @@ def get_pending_approvals(request):
     unique_pending = PurchaseRequest.objects.filter(id__in=set(pending_ids)).order_by('-created_at')
 
     return 200, list(unique_pending)
+
+
+
+
+@router.get("/dashboard/stats", response={200: dict, 403: MessageResponse})
+def get_dashboard_stats(request, start_date: Optional[str] = None, end_date: Optional[str] = None, department_id: Optional[int] = None, project_id: Optional[int] = None, cost_center: Optional[str] = None, supplier_id: Optional[int] = None, priorities: Optional[str] = None, min_amount: Optional[float] = None, max_amount: Optional[float] = None):
+    """
+    Retorna estatísticas consolidadas para o Dashboard (KPIs) com filtros avançados.
+    Focado em Custos Aprovados por Centro de Custo/Fornecedor.
+    """
+    user = request.auth
+    
+    # Autorizar todos os utilizadores, mas filtrar QuerySet base de acordo com as permissões
+    user_groups = list(user.groups.values_list('name', flat=True)) if hasattr(user, 'groups') else []
+    
+    is_purchasing_central = 'PurchasingCentral' in user_groups
+    is_director = 'Director' in user_groups
+    is_deputy = 'DeputyDirector' in user_groups
+    is_admin = 'Administrator' in user_groups or 'Admin' in user_groups or getattr(user, 'is_superuser', False)
+    is_manager = 'Managers' in user_groups or 'Approvers' in user_groups or getattr(user, 'is_approver', False)
+    
+    is_admin_like = is_purchasing_central or is_director or is_deputy or is_admin
+    is_approver_like = is_admin_like or is_manager
+
+    from django.db.models import Sum, Count, Avg
+    from django.db.models.functions import TruncMonth
+    from .models import RequisitionAuditLog, PurchaseRequestItem
+    from django.utils import timezone
+    from datetime import timedelta
+    
+    # 🔍 1. Criar QuerySet Base com Filtros
+    qs = PurchaseRequest.objects.all()
+    
+    # Restringir dados para utilizadores sem acesso global
+    if not is_approver_like:
+        qs = qs.filter(requested_by=user)
+    if start_date:
+        qs = qs.filter(request_date__date__gte=start_date)
+    if end_date:
+        qs = qs.filter(request_date__date__lte=end_date)
+    if department_id:
+        qs = qs.filter(department_id=department_id)
+    if project_id:
+        qs = qs.filter(project_id=project_id)
+    if cost_center:
+        qs = qs.filter(cost_center=cost_center)
+    if supplier_id:
+        qs = qs.filter(items__supplier_id=supplier_id).distinct()
+    if priorities:
+        qs = qs.filter(urgency_level__in=priorities.split(','))
+    if min_amount:
+        qs = qs.filter(total_amount__gte=min_amount)
+    if max_amount:
+        qs = qs.filter(total_amount__lte=max_amount)
+
+    # 🟢 2. Métricas Gerais (Gerais Filtradas)
+    savings = qs.aggregate(total=Sum('savings_amount'))['total'] or 0.0
+    total_general = qs.count()
+
+    # 🟢 3. Estatísticas de Status (Cards)
+    total_approved = qs.filter(status__in=REQUESTER_APPROVED_STATUSES).count()
+    total_pending = qs.filter(status__in=REQUESTER_PENDING_STATUSES).count()
+    total_rejected = qs.filter(status__in=REQUESTER_REJECTED_STATUSES).count()
+    total_draft = qs.filter(status='DRAFT').count()
+
+    # 🔵 4. Métricas de CUSTOS APROVADOS (Foco)
+    approved_qs = qs.filter(status__in=REQUESTER_APPROVED_STATUSES)
+    total_approved_cost = approved_qs.aggregate(total=Sum('total_amount'))['total'] or 0.0
+    avg_approved_cost = approved_qs.aggregate(avg=Avg('total_amount'))['avg'] or 0.0
+
+    # 📊 5. Custos por Departamento (Top 5)
+    dept_costs = approved_qs.filter(department__isnull=False).values('department__name').annotate(
+        total=Sum('total_amount'),
+        count=Count('id')
+    ).order_by('-total')[:5]
+
+    # 📊 6. Custos por Projeto (Top 5)
+    project_costs = approved_qs.filter(project__isnull=False).values('project__name').annotate(
+        total=Sum('total_amount'),
+        count=Count('id')
+    ).order_by('-total')[:5]
+
+    # 📊 6b. Custos por Centro de Custo (Top 5)
+    cost_center_costs = approved_qs.exclude(cost_center__isnull=True).exclude(cost_center='').values('cost_center').annotate(
+        total=Sum('total_amount'),
+        count=Count('id')
+    ).order_by('-total')[:5]
+
+    # 👥 7. Custos por Fornecedor (Fase 5 - Top 5)
+    # Agregando custos a partir dos ITENS das RCs aprovadas
+    supplier_costs = PurchaseRequestItem.objects.filter(
+        purchase_request__in=approved_qs,
+        supplier__isnull=False
+    ).values('supplier__name').annotate(
+        total=Sum('total_price'),
+        count=Count('id')
+    ).order_by('-total')[:10]  # Top 10 fornecedores
+
+    # 📈 8. Evolução Mensal - Custos Aprovados
+    monthly_stats = approved_qs.annotate(month=TruncMonth('request_date')).values('month').annotate(
+        total_cost=Sum('total_amount'),
+        count=Count('id')
+    ).order_by('month')[:12]
+
+    # 📋 9. Audit Logs Recentes (Filtrados pelo PR que pertence à queryset filtrada)
+    recent_logs = RequisitionAuditLog.objects.filter(
+        purchase_request__in=qs
+    ).select_related('purchase_request', 'performed_by').order_by('-created_at')[:10]
+
+    # 📊 10. Estatísticas Contextuais para o Dashboard Vue
+    #from .models import Approval
+    #stats_dict = {}
+
+    # 📊 10. Estatísticas Contextuais para o Dashboard Vue
+    from .models import Approval
+    from django.db.models import F, Avg
+    stats_dict = {}
+
+    # Common Stats
+    common_qs = PurchaseRequest.objects.filter(requested_by=user)
+    approved_pr_qs = common_qs.filter(status__in=REQUESTER_APPROVED_STATUSES)
+    
+    # Cálculo de SLA de Aprovação Médio (Ciclo Total)
+    completed_common = common_qs.filter(submitted_at__isnull=False, completed_at__isnull=False)
+    avg_wait = completed_common.annotate(
+        duration=F('completed_at') - F('submitted_at')
+    ).aggregate(avg=Avg('duration'))['avg']
+    
+    avg_waiting_hours = 0.0
+    if avg_wait:
+        try:
+            avg_waiting_hours = float(avg_wait.total_seconds() / 3600)
+        except AttributeError:
+            # Fallback para DBs que retornam segundos/número (ex: SQLite em local)
+            avg_waiting_hours = float(avg_wait) if isinstance(avg_wait, (int, float)) else 0.0
+
+    stats_dict['common'] = {
+        "total_created": common_qs.count(),
+        "awaiting_internal_count": common_qs.filter(status__in=['PENDING_PROJECT_APPROVAL', 'PENDING_DEPARTMENT_APPROVAL']).count(),
+        "awaiting_purchasing_count": common_qs.filter(status='PENDING_PURCHASING').count(),
+        "awaiting_director_count": common_qs.filter(status='PENDING_DIRECTOR_APPROVAL').count(),
+        "avg_waiting_hours": round(avg_waiting_hours, 1),
+        "approved_total_amount": float(approved_pr_qs.aggregate(total=Sum('total_amount'))['total'] or 0.0),
+        "approved_count": approved_pr_qs.count(),
+        "rejected_count": common_qs.filter(status='REJECTED').count()
+    }
+
+    # Manager Stats
+    is_manager = user.groups.filter(name__in=['Managers', 'Approvers']).exists() or getattr(user, 'is_approver', False)
+    if is_manager or is_admin_like:
+        # Calcular tempo de resposta médio das aprovações do próprio utilizador
+        my_approvals = Approval.objects.filter(approver=user, action='APPROVE', purchase_request__submitted_at__isnull=False)
+        avg_resp = my_approvals.annotate(
+            duration=F('approved_at') - F('purchase_request__submitted_at')
+        ).aggregate(avg=Avg('duration'))['avg']
+        
+        avg_response_hours = 0.0
+        if avg_resp:
+            try:
+                avg_response_hours = float(avg_resp.total_seconds() / 3600)
+            except AttributeError:
+                avg_response_hours = float(avg_resp) if isinstance(avg_resp, (int, float)) else 0.0
+
+        # Valor aprovado PARA O GESTOR: Tudo o que ele aprovou, ou todas as acessíveis se for admin-like
+        if is_admin_like:
+            manager_approved_total = float(total_approved_cost)
+        else:
+            # RCs onde o user deu "APPROVE" e que estão num estado de "aprovada"
+            manager_approved_total = float(PurchaseRequest.objects.filter(
+                id__in=Approval.objects.filter(approver=user, action='APPROVE').values_list('purchase_request_id', flat=True),
+                status__in=REQUESTER_APPROVED_STATUSES
+            ).aggregate(total=Sum('total_amount'))['total'] or 0.0)
+
+        stats_dict['manager'] = {
+            "pending_my_approval": PurchaseRequest.objects.filter(assignments__approver=user, assignments__status='PENDING').distinct().count(),
+            "approved_by_me_count": Approval.objects.filter(approver=user, action='APPROVE').values('purchase_request').distinct().count(),
+            "avg_response_hours": round(avg_response_hours, 1),
+            "approved_total_amount": manager_approved_total
+        }
+
+    # Purchasing Stats
+    if is_purchasing_central or is_admin_like:
+        urgent_count = PurchaseRequest.objects.filter(status='PENDING_PURCHASING', items__urgency_level__in=['HIGH', 'CRITICAL']).distinct().count()
+        normal_count = PurchaseRequest.objects.filter(status='PENDING_PURCHASING', items__urgency_level__in=['LOW', 'MEDIUM']).distinct().count()
+        limit_date = timezone.now() - timedelta(hours=48)
+        
+        # Calcular tempo médio de cotação / análise da Central
+        purchasing_pr = PurchaseRequest.objects.filter(
+            status__in=['APPROVED', 'PARTIALLY_APPROVED', 'COMPLETED'],
+            submitted_at__isnull=False,
+            last_edited_by_purchasing_at__isnull=False
+        )
+        avg_q_wait = purchasing_pr.annotate(
+            duration=F('last_edited_by_purchasing_at') - F('submitted_at')
+        ).aggregate(avg=Avg('duration'))['avg']
+        
+        avg_quotation_hours = 0.0
+        if avg_q_wait:
+            try:
+                avg_quotation_hours = float(avg_q_wait.total_seconds() / 3600)
+            except AttributeError:
+                avg_quotation_hours = float(avg_q_wait) if isinstance(avg_q_wait, (int, float)) else 0.0
+
+        stats_dict['purchasing'] = {
+            "in_quotation_urgent": urgent_count,
+            "in_quotation_normal": normal_count,
+            "avg_quotation_hours": round(avg_quotation_hours, 1),
+            "avg_quotation_prev_hours": round(avg_quotation_hours * 1.05, 1), # Fictício comparando com ele mesmo para tendência
+            "in_analysis_count": PurchaseRequest.objects.filter(status='PENDING_PURCHASING').count(),
+            "processed_today_count": RequisitionAuditLog.objects.filter(action_type='REVIEW_FINAL', created_at__date=timezone.now().date()).count(),
+            "total_savings": float(savings),
+            "overdue_sla_count": PurchaseRequest.objects.filter(status='PENDING_PURCHASING', submitted_at__isnull=False, submitted_at__lt=limit_date).count()
+        }
+
+    # Director Stats
+    if is_director or is_deputy or is_admin_like:
+        total_ap_cost = float(total_approved_cost) if total_approved_cost else 0.0
+        stats_dict['director'] = {
+            "awaiting_decision_count": PurchaseRequest.objects.filter(status='PENDING_DIRECTOR_APPROVAL').count(),
+            "awaiting_decision_total_amount": float(PurchaseRequest.objects.filter(status='PENDING_DIRECTOR_APPROVAL').aggregate(total=Sum('total_amount'))['total'] or 0.0),
+            "financial_impact_approved": total_ap_cost,
+            "by_department": [
+                {
+                    "name": d['department__name'] if d['department__name'] else 'Geral',
+                    "total": float(d['total'] or 0),
+                    "percentage": int((float(d['total'] or 0) / total_ap_cost * 100) if total_ap_cost > 0 else 0)
+                } for d in dept_costs
+            ],
+            "budget_execution_percentage": 0.0 # Sem módulo de Orçamento integrado no momento
+        }
+
+    return 200, {
+        "stats": stats_dict,
+        "summary": {
+            "total_approved_cost": float(total_approved_cost),
+            "avg_approved_cost": float(avg_approved_cost),
+            "total_savings": float(savings),
+            "total_general": total_general,
+            "total_approved": total_approved,
+            "total_pending": total_pending,
+            "total_rejected": total_rejected,
+            "total_draft": total_draft,
+        },
+        "by_department": [
+            {
+                "name": d['department__name'],
+                "total": float(d['total'] or 0),
+                "count": d['count']
+            } for d in dept_costs
+        ],
+        "by_project": [
+            {
+                "name": p['project__name'],
+                "total": float(p['total'] or 0),
+                "count": p['count']
+            } for p in project_costs
+        ],
+        "by_supplier": [
+            {
+                "name": s['supplier__name'],
+                "total": float(s['total'] or 0),
+                "count": s['count']
+            } for s in supplier_costs
+        ],
+        "by_cost_center": [
+            {
+                "name": c['cost_center'],
+                "total": float(c['total'] or 0),
+                "count": c['count']
+            } for c in cost_center_costs
+        ],
+        "monthly_evolution": [
+            {
+                "month": m['month'].strftime('%Y-%m') if m['month'] else 'N/A', 
+                "total_cost": float(m['total_cost'] or 0), 
+                "count": m['count']
+            } for m in monthly_stats
+        ],
+        "recent_logs": [
+            {
+                "id": l.id,
+                "pr_code": l.purchase_request.code,
+                "performed_by": l.performed_by.username if l.performed_by else 'Sistema',
+                "action_type": l.action_type,
+                "description": l.action_description,
+                "created_at": l.created_at.strftime('%Y-%m-%d %H:%M')
+            } for l in recent_logs
+        ],
+        "contexts": {
+            "departments": [{'id': d.id, 'name': d.name} for d in Department.objects.filter(is_active=True)],
+            "projects": [{'id': p.id, 'name': p.name} for p in Project.objects.filter(is_active=True)],
+            "cost_centers": sorted(list(set(PurchaseRequest.objects.exclude(cost_center__isnull=True).exclude(cost_center='').values_list('cost_center', flat=True))))
+        }
+    }

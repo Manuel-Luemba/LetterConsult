@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field, validator, root_validator
 from typing import Optional
 from datetime import date
 from django.utils import timezone
-from pydantic.schema import datetime
+from datetime import datetime
 from core.reports.schemas_colaborador import PeriodEnum
 
 # ==================== FILTROS ====================

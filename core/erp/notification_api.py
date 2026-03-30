@@ -9,8 +9,9 @@ from ninja import Router, Schema
 from django.shortcuts import get_object_or_404
 
 from .models import Notification
+from core.login.jwt_auth import JWTAuth
 
-router = Router(tags=["Notifications"])
+router = Router(tags=["Notifications"], auth=JWTAuth())
 
 
 # ============================================

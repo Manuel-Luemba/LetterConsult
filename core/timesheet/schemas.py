@@ -1,8 +1,7 @@
-# core/timesheet/schemas.py
+﻿# core/timesheet/schemas.py
 from datetime import date
 from ninja import Schema, ModelSchema
-from pydantic import Field
-from pydantic.main import BaseModel
+from pydantic import Field, ConfigDict, BaseModel
 from .models import  Task
 from ..erp.models import Department
 from datetime import datetime
@@ -11,22 +10,36 @@ from typing import List, Optional
 
 
 class DepartmentOut(ModelSchema):
-    class Config:
+    class Meta:
         model = Department
-        model_fields = "__all__"
-        #model_fields = ['id', 'name']
+        fields = "__all__"
 
 class TaskIn(Schema):
-    id: Optional[int] = None  # ⚠️ ADICIONAR ESTE CAMPO
+    id: Optional[int] = None
     project_id: int
     activity_id: int
     hour: int
     created_at: date
 
-class TaskOut(ModelSchema):
-    class Config:
-        model = Task
-        model_fields = ['id', 'timesheet', 'project', 'activity', 'hour', 'created_at', 'updated_at']
+class TaskOut(Schema):
+    id: int
+    project_name: Optional[str] = None
+    activity_name: Optional[str] = None
+    hour: float
+    created_at: date
+    status: Optional[str] = None
+    review_comment: Optional[str] = None
+    timesheet_id: Optional[int] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @staticmethod
+    def resolve_project_name(obj):
+        return getattr(obj, 'project_name', "N/A")
+
+    @staticmethod
+    def resolve_activity_name(obj):
+        return getattr(obj, 'activity_name', "N/A")
 
 class TaskViewSchema(Schema):
     id: int
@@ -35,12 +48,14 @@ class TaskViewSchema(Schema):
     activity_name: str
     hour: float
     description: Optional[str] = None
+    status: Optional[str] = None
+    review_comment: Optional[str] = None
 
 class TimesheetIn(Schema):
     employee_id: int
     department_id: int
     status: str
-    validation_level: str = Field(default="strict")  # ← novo campo
+    validation_level: str = Field(default="strict")
     obs: Optional[str] = None
     tasks: List[TaskIn]
     created_at: Optional[date] = None
@@ -59,6 +74,8 @@ class TimesheetOut(Schema):
     submitted_name: Optional[str] = None
     submitted_at: Optional[date] = None
     updated_at: Optional[date] = None
+    locked_by_name: Optional[str] = None
+    locked_at: Optional[datetime] = None
     tasks: List[TaskOut] = []
     tasks_count: Optional[int] = 0
     warnings: Optional[List[str]] = None
@@ -66,19 +83,20 @@ class TimesheetOut(Schema):
     can_edit: Optional[bool] = False
     can_add_task: Optional[bool] = False
 
-
-    class Config:
-        from_attributes = True
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 class TaskUpdateIn(BaseModel):
-    id: Optional[int] = None  # Para tasks existentes
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Optional[int] = None
     activity: int
     project: int
     hour: float = Field(..., gt=0, le=24, description="Horas devem ser entre 0 e 24")
     created_at: date
 
 class TimesheetUpdateIn(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     employee_id: Optional[int] = None
     obs: Optional[str] = None
     status: Optional[str] = None
@@ -123,30 +141,22 @@ class StatusHistorySchema(Schema):
     notes: Optional[str] = None
 
 class TimesheetViewSchema(Schema):
-    # Informações básicas
     id: int
     employee_name: str
     department_name: str
     status: str
-    #period: str
-    submitted_at: datetime
-
-    # Métricas
+    submitted_at: Optional[date] = None
+    locked_by_name: Optional[str] = None
+    locked_at: Optional[datetime] = None
     total_hours: float
     work_days: int
     task_count: int
     daily_average: float
-
-    # Conteúdo
     obs: Optional[str] = None
     tasks: List[TaskViewSchema] = []
-
-    # Analytics
     hours_by_project: List[HoursByProjectSchema] = []
     daily_hours: List[DailyHoursSchema] = []
     project_breakdown: List[ProjectBreakdownSchema] = []
-
-    # Histórico e comentários
     status_history: List[StatusHistorySchema] = []
     comments: List[CommentSchema] = []
 
@@ -156,6 +166,14 @@ class CommentCreateSchema(Schema):
 class TimesheetActionSchema(Schema):
     notes: Optional[str] = None
 
+class TaskActionIn(Schema):
+    task_id: int
+    status: str
+    review_comment: Optional[str] = None
+
+class TimesheetReviewIn(Schema):
+    notes: Optional[str] = None
+    tasks: Optional[List[TaskActionIn]] = []
 
 class ExportResponseSchema(Schema):
     file_url: str
@@ -166,7 +184,20 @@ class ExportRequest(Schema):
     timesheet_ids: list[int]
     format: str = "excel"
 
-# class WeeklyHours(Schema):
-#     week_start: date
-#     week_end: date
-#     total_hours: float
+class TimesheetStatsCommon(Schema):
+    total_hours_month: float = 0.0
+    pending_count: int = 0
+    approved_count: int = 0
+    rejected_count: int = 0
+    submission_rate: float = 0.0
+
+class TimesheetStatsManager(Schema):
+    pending_my_approval: int = 0
+    approved_by_me_count: int = 0
+    avg_approval_time: float = 0.0
+    total_hours_approved: float = 0.0
+
+class TimesheetDashboardStats(Schema):
+    common: Optional[TimesheetStatsCommon] = None
+    manager: Optional[TimesheetStatsManager] = None
+

@@ -3,9 +3,9 @@ from ninja import Schema
 from typing import List, Optional, Literal, Dict, Any
 from datetime import date, datetime
 from decimal import Decimal
-from pydantic import constr
 from core.user.schema import UserOut
-
+from pydantic import Field, ValidationError
+from typing import Annotated
 
 # ----- USER SCHEMAS -----
 class UserSchema(Schema):
@@ -18,9 +18,8 @@ class UserSchema(Schema):
     department_id: Optional[int] = None
     department_name: Optional[str] = None
 
-    class Config:
-        orm_mode = True
-
+    class Meta:
+        from_attributes = True
 
 class UserDetailSchema(UserSchema):
     groups: List[str]
@@ -36,7 +35,6 @@ class DepartmentSchema(Schema):
     cost_center: Optional[str] = None
     is_active: bool
 
-
 # ----- PROJECT SCHEMAS -----
 class ProjectSchema(Schema):
     id: int
@@ -45,16 +43,39 @@ class ProjectSchema(Schema):
     department_id: Optional[int] = None
     is_active: bool
 
+# ----- SUPPLIER SCHEMAS -----
+class SupplierSchema(Schema):
+    id: int
+    code: str
+    name: str
+    tax_id: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    payment_terms: Optional[int] = 30
+    is_active: bool
+
+class SupplierCreateSchema(Schema):
+    code: str
+    name: str
+    tax_id: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    payment_terms: int = 30
+
 # ----- ITEM SCHEMAS -----
 class PurchaseRequestItemCreate(Schema):
     description: str
     quantity: Optional[Decimal] = None
     unit_price: Optional[Decimal] = None
-    # Urgency at item level: LOW | MEDIUM | HIGH | CRITICAL
     urgency_level: Optional[str] = 'LOW'
-    preferred_supplier: Optional[str] = None
+    preferred_supplier: Optional[str] = None # Texto livre fallback
+    supplier_id: Optional[int] = None # FK para Tabela Supplier
     delivery_deadline: Optional[date] = None
     special_status: str = 'NORMAL'
+    status: Optional[str] = None
+    rejection_reason: Optional[str] = None
     observations: str = ''
     tax_rate: Optional[Decimal] = None
     base_price: Optional[Decimal] = None
@@ -62,7 +83,7 @@ class PurchaseRequestItemCreate(Schema):
 class PurchaseRequestItemSchema(PurchaseRequestItemCreate):
     id: int
     total_price: Optional[Decimal] = None
-    preferred_supplier: Optional[str] = None
+    supplier: Optional[SupplierSchema] = None # Objeto detalhado
     delivery_deadline: Optional[date] = None
     tax_rate: Optional[Decimal] = None
     base_price: Optional[Decimal] = None
@@ -78,7 +99,7 @@ class AttachmentBaseSchema(Schema):
     
 class AttachmentSchema(AttachmentBaseSchema):
     id: int
-    file_url: str
+    file_url: Optional[str] = None
 
     @staticmethod
     def resolve_file_url(obj, context=None):
@@ -103,7 +124,10 @@ class PurchaseRequestCreate(Schema):
     project_id: Optional[int] = None
     department_id: Optional[int] = None
     required_date: date
-    reference_month: constr(regex=r"^\d{4}-\d{2}$")  # aceita "2026-03"
+   # reference_month: constr(regex=r"^\d{4}-\d{2}$")  # aceita "2026-03"
+
+
+    reference_month: Annotated[str, Field(pattern=r"^\d{4}-\d{2}$")]
     # urgency_level moved to item level
     # Urgency at item level: LOW | MEDIUM | HIGH | CRITICAL
     urgency_level: Optional[str] = 'LOW'
@@ -169,17 +193,12 @@ class PurchaseRequestSchema(Schema):
 
     @staticmethod
     def resolve_is_urgent(obj):
-        """Determina se requisição é urgente (baseado nos itens e prazo)."""
-        # 1) Verifica se algum item tem urgency HIGH/CRITICAL
-        try:
-            items = getattr(obj, 'items', [])
-            for item in items.all() if hasattr(items, 'all') else items:
-                if getattr(item, 'urgency_level', None) in ['HIGH', 'CRITICAL']:
-                    return True
-        except Exception:
-            pass
+        """Determina se requisição é urgente (baseado no cabeçalho e prazo)."""
+        # 1) Verifica o urgency_level da requisição
+        if getattr(obj, 'urgency_level', None) in ['HIGH', 'CRITICAL']:
+            return True
 
-        # 2) Por prazo (<= 2 dias)
+        # 2) Por prazo (< = 2 dias)
         if getattr(obj, 'required_date', None):
             days = (obj.required_date - date.today()).days
             if days <= 2:
@@ -190,6 +209,9 @@ class PurchaseRequestSchema(Schema):
     @staticmethod
     def resolve_can_current_user_approve(obj, context=None):
         """Verifica se o utilizador atual pode aprovar esta requisição."""
+        if hasattr(obj, 'annotated_can_approve'):
+            return obj.annotated_can_approve
+
         from crum import get_current_request
         
         # Tenta obter o request diretamente do context
@@ -200,11 +222,14 @@ class PurchaseRequestSchema(Schema):
         if request is None:
             request = get_current_request()
 
-        if request is None:
-            return False
-
-        user = getattr(request, 'auth', getattr(request, 'user', None))
-        if not user or not user.is_authenticated:
+        if hasattr(obj, '_current_user'):
+            user = obj._current_user
+        else:
+            if request is None:
+                return False
+            user = getattr(request, 'auth', getattr(request, 'user', None))
+            
+        if not user or not getattr(user, 'is_authenticated', False):
             return False
 
         # Central de Compras
@@ -219,43 +244,54 @@ class PurchaseRequestSchema(Schema):
         if obj.context_type == 'PROJECT' and obj.status == 'PENDING_PROJECT_APPROVAL':
             try:
                 return user.id in [u.id for u in obj.project.all_approvers]
-            except Exception:
+            except AttributeError:
                 return False
 
         # Departamento
         if obj.context_type == 'DEPARTMENT' and obj.status == 'PENDING_DEPARTMENT_APPROVAL':
             try:
                 return user.id in [u.id for u in obj.department.all_approvers]
-            except Exception:
+            except AttributeError as e:
                 return False
 
         return False
 
     @staticmethod
     def _get_user_assignment(obj, context):
-        from crum import get_current_request
-        request = context
-        if hasattr(context, 'request'):
-            request = context.request
-        if request is None:
-            request = get_current_request()
-        if request is None:
-            return None
-        
-        user = getattr(request, 'auth', getattr(request, 'user', None))
+        if hasattr(obj, '_current_user'):
+            user = obj._current_user
+        else:
+            from crum import get_current_request
+            request = context
+            if hasattr(context, 'request'):
+                request = context.request
+            if request is None:
+                request = get_current_request()
+            if request is None:
+                return None
+            
+            user = getattr(request, 'auth', getattr(request, 'user', None))
+            
         if not user or not getattr(user, 'is_authenticated', False) or not getattr(user, 'pk', None):
             return None
 
         # Usar filter() em vez de get() porque as vezes os testes podem injetar lixo e `.first()` é mais seguro
-        return obj.assignments.filter(approver=user).order_by('-assigned_at').first()
+        assignment = obj.assignments.filter(approver=user).order_by('-assigned_at').first()
+        return assignment
 
     @staticmethod
     def resolve_my_assignment_status(obj, context=None):
+        if hasattr(obj, 'annotated_my_assignment_status'):
+            return obj.annotated_my_assignment_status
+            
         assignment = PurchaseRequestSchema._get_user_assignment(obj, context)
         return assignment.status if assignment else None
 
     @staticmethod
     def resolve_my_assignment_id(obj, context=None):
+        if hasattr(obj, 'annotated_my_assignment_id'):
+            return obj.annotated_my_assignment_id
+            
         assignment = PurchaseRequestSchema._get_user_assignment(obj, context)
         return assignment.id if assignment else None
 
@@ -273,7 +309,7 @@ class PurchaseRequestSchema(Schema):
 
     @staticmethod
     def resolve_purchasing_actions(obj):
-        # Filtra as aprovações da central (ou seja, feitas na etapa PURCHASING_ANALYSIS ou com ação de FORWARD)
+        # Filtra as aprovações da central (ou seja, feitas na etapa PURCHASING_ANALYSIS ou com ação de "FORWARD")
         actions = obj.approvals.filter(action__in=['FORWARD', 'EDIT', 'APPROVE'], step='PURCHASING_ANALYSIS').order_by('approved_at')
         return [
             {
@@ -349,19 +385,19 @@ class PurchaseRequestSchema(Schema):
                 "total_steps": total_steps,
                 "current_step_label": workflow.current_step_description
             }
-        except Exception:
+        except AttributeError:
             return None
 
     @classmethod
-    def from_orm(cls, obj):
+    def from_orm(cls, obj: Any, **kwargs):
         # Use default pydantic conversion first
-        instance = super().from_orm(obj)
+        instance = super().from_orm(obj, **kwargs)
 
         # Ensure requested_by is converted via UserOut.from_orm to populate full_name, etc.
         try:
             if getattr(obj, 'requested_by', None):
                 instance.requested_by = UserOut.from_orm(obj.requested_by)
-        except Exception:
+        except (ValidationError, AttributeError):
             # fallback: leave whatever pydantic placed or None
             pass
 
@@ -369,7 +405,7 @@ class PurchaseRequestSchema(Schema):
         try:
             if getattr(obj, 'last_edited_by_purchasing_by', None):
                 instance.last_edited_by_purchasing_by = UserOut.from_orm(obj.last_edited_by_purchasing_by)
-        except Exception:
+        except (ValidationError, AttributeError):
             pass
 
         return instance
@@ -383,8 +419,8 @@ class ApprovalSchema(Schema):
     step: str
     comments: str
 
-    class Config:
-        orm_mode = True
+    class Meta:
+        from_attributes = True
 
 
 class WorkflowSchema(Schema):
@@ -401,9 +437,14 @@ class WorkflowSchema(Schema):
 # ----- ACTION SCHEMAS -----
 class ApprovalAction(Schema):
     comments: str = ''
+    items: Optional[List[PurchaseRequestItemCreate]] = None
 
 class RejectAction(Schema):
     reason: str
+
+class RequesterDecisionAction(Schema):
+    action: Literal['ACCEPT_APPROVED', 'RESUBMIT_REJECTED']
+    comments: str = ''
 
 # ----- BULK ACTION SCHEMAS -----
 class BulkActionRequest(Schema):
