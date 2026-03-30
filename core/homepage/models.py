@@ -98,3 +98,23 @@ class Position(models.Model):
         verbose_name_plural = 'cargos'
         db_table = 'cargo'
         ordering = ['id']
+
+
+class ContactLead(BaseModel):
+    """
+    Captura de leads comerciais e mensagens da Landing Page.
+    """
+    full_name = models.CharField(max_length=200, verbose_name='Nome Completo')
+    email = models.EmailField(verbose_name='Email')
+    phone = models.CharField(max_length=50, verbose_name='Telefone', blank=True, null=True)
+    message = models.TextField(verbose_name='Mensagem')
+    is_processed = models.BooleanField(default=False, verbose_name='Processado')
+
+    def __str__(self):
+        return f"{self.full_name} - {self.email}"
+
+    class Meta:
+        verbose_name = 'Lead de Contacto'
+        verbose_name_plural = 'Leads de Contacto'
+        db_table = 'contact_lead'
+        ordering = ['-date_created']
