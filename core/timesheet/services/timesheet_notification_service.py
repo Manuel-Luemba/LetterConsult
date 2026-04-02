@@ -1,6 +1,5 @@
 # core/timesheet/services/timesheet_notification_service.py
 import logging
-import threading
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.conf import settings
@@ -9,9 +8,11 @@ from django.utils import timezone
 from django.db import IntegrityError
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from django_q.tasks import async_task
 
 from core.erp.models import Notification
 from core.user.models import User
+
 
 logger = logging.getLogger(__name__)
 
@@ -46,14 +47,16 @@ class TimesheetNotificationService:
 
             self._create_notification(approver, message, event_type, timesheet, action_url)
             
-            # Email (OPCIONAL: Podes desativar ou usar um template específico)
+            # Email usando o novo template unificado
             self._send_email_safe(
                 user=approver,
-                subject=f'Timesheet #{timesheet.id} Pendente de Aprovação',
-                template='emails/timesheet_pending.html',
+                subject=f'Timesheet #{timesheet.id} de {timesheet.employee.get_full_name()} Pendente',
+                template='emails/timesheet_notification.html',
                 context={
+                    'title': 'Aprovação de Timesheet Pendente',
+                    'employee_name': approver.get_full_name(),
+                    'message_body': f'A timesheet de {timesheet.employee.get_full_name()} foi submetida e aguarda a sua revisão.',
                     'timesheet': timesheet,
-                    'approver': approver,
                     'action_url': f'{self.site_url}{action_url}',
                 }
             )
@@ -71,14 +74,16 @@ class TimesheetNotificationService:
 
         self._create_notification(timesheet.employee, message, event_type, timesheet, action_url)
         
+        # Email de Feedback (Aprovação/Rejeição)
         self._send_email_safe(
             user=timesheet.employee,
-            subject=f'Feedback sobre a sua Timesheet #{timesheet.id}',
-            template='emails/timesheet_feedback.html',
+            subject=f'Sua Timesheet #{timesheet.id} foi {action_label}',
+            template='emails/timesheet_notification.html',
             context={
+                'title': f'Timesheet {action_label.capitalize()}',
+                'employee_name': timesheet.employee.get_full_name(),
+                'message_body': f'Sua timesheet foi {action_label} por {actor.get_full_name()}.',
                 'timesheet': timesheet,
-                'actor': actor,
-                'action_label': action_label,
                 'reason': reason,
                 'action_url': f'{self.site_url}{action_url}',
             }
@@ -132,15 +137,18 @@ class TimesheetNotificationService:
                 logger.debug(f'Template {template} não encontrado ou erro na renderização: {e}')
                 return
 
-            def _send():
-                try:
-                    send_mail(subject, plain_message, self.from_email, [user.email], html_message=html_message)
-                except Exception as e:
-                    logger.error(f'Falha envio email TS: {e}')
+            # Enviar para a fila do Django Q
+            async_task(
+                'core.erp.tasks.send_email_task',
+                subject=subject,
+                plain_message=plain_message,
+                from_email=self.from_email,
+                recipient_list=[user.email],
+                html_message=html_message
+            )
+        except Exception as e:
+            logger.error(f'Falha ao enfileirar email TS: {e}')
 
-            threading.Thread(target=_send, daemon=True).start()
-        except Exception:
-            pass
 
     def _broadcast_realtime(self, user, event_type, payload):
         try:

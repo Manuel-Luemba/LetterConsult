@@ -8,10 +8,12 @@ from datetime import datetime
 from ninja import Router, Schema
 from django.shortcuts import get_object_or_404
 
-from .models import Notification
+from django.conf import settings
+from .models import Notification, WebPushSubscription
 from core.login.jwt_auth import JWTAuth
 
 router = Router(tags=["Notifications"], auth=JWTAuth())
+
 
 
 # ============================================
@@ -33,6 +35,12 @@ class NotificationOut(Schema):
 
 class UnreadCountOut(Schema):
     count: int
+
+
+class PushSubscriptionSchema(Schema):
+    endpoint: str
+    keys: dict
+
 
 
 # ============================================
@@ -109,3 +117,34 @@ def clear_all_notifications(request):
     user = request.auth
     deleted, _ = Notification.objects.filter(user=user).delete()
     return {"success": True, "deleted": deleted}
+
+
+# ============================================
+# WEB PUSH ENDPOINTS
+# ============================================
+
+@router.get("/vapid-public-key")
+def get_vapid_key(request):
+    """
+    Retorna a chave pública VAPID para o frontend subscrever.
+    """
+    return {"publicKey": settings.VAPID_PUBLIC_KEY}
+
+
+@router.post("/subscribe")
+def register_push_subscription(request, data: PushSubscriptionSchema):
+    """
+    Regista os dados de subscrição de push do browser do utilizador.
+    """
+    user = request.auth
+    WebPushSubscription.objects.get_or_create(
+        user=user,
+        endpoint=data.endpoint,
+        defaults={
+            'p256dh': data.keys.get('p256dh', ''),
+            'auth': data.keys.get('auth', ''),
+            'browser': request.headers.get('User-Agent', '')[:100]
+        }
+    )
+    return {"success": True}
+

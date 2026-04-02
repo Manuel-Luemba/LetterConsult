@@ -3,7 +3,7 @@ from django.shortcuts import get_object_or_404
 from ninja import Router
 from ninja.errors import HttpError
 from .models import Position, ContactLead
-from .schemas import PositionIn, PositionOut, PaginatedPositionResponse, ContactIn
+from .schemas import PositionIn, PositionOut, PaginatedPositionResponse, ContactIn, ContactStatsOut
 from core.login.jwt_auth import JWTAuth
 from django.core.mail import send_mail
 from app import settings
@@ -101,7 +101,8 @@ from django.utils.html import strip_tags
 import time
 from django.core.cache import cache
 
-contact_router = PublicRouter(tags=["Contact"])
+contact_router = PublicRouter(tags=["Contact"], auth=None)
+
 
 def rate_limit_check(ip):
     cache_key = f"contact_limit_{ip}"
@@ -149,3 +150,15 @@ def submit_contact(request, payload: ContactIn):
         pass
         
     return {"success": True, "message": "Mensagem enviada com sucesso"}
+
+
+@contact_router.get("/stats/", response=ContactStatsOut)
+def get_contact_stats(request):
+    """
+    Returns representative static statistics for the company.
+    """
+    return ContactStatsOut(
+        men_pct=60,
+        women_pct=40,
+        higher_ed_pct=75
+    )

@@ -240,6 +240,8 @@ class Notification(models.Model):
         ('RQ_REJECTED_DIRECTOR', 'Rejeitada (Direção)'),
         ('RQ_PURCHASING_EDITED', 'Editada pela Central'),
         ('RQ_APPROVED_FINAL', 'Aprovação Final'),
+        ('TS_SUBMITTED', 'Timesheet Submetida'),
+        ('TS_ACTION_TAKEN', 'Ação em Timesheet (Aprovação/Rejeição)'),
         ('OTHER', 'Outro'),
     ]
 
@@ -250,6 +252,8 @@ class Notification(models.Model):
                                          help_text='Chave única para deduplicação (ex: RQ-123|RQ_SUBMITTED|user_45)')
     purchase_request_id = models.IntegerField(null=True, blank=True,
                                                help_text='ID da requisição associada')
+    timesheet_id = models.IntegerField(null=True, blank=True,
+                                        help_text='ID da timesheet associada')
     action_url = models.CharField(max_length=500, blank=True, default='',
                                    help_text='Link direto para ação (ex: /requisicoes/123)')
     is_read = models.BooleanField(default=False)
@@ -267,4 +271,19 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"[{self.event_type}] {self.user} — {self.message[:50]}"
+
+
+class WebPushSubscription(models.Model):
+    user = models.ForeignKey(AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='push_subscriptions')
+    endpoint = models.URLField(max_length=500, unique=True)
+    p256dh = models.CharField(max_length=200)
+    auth = models.CharField(max_length=200)
+    browser = models.CharField(max_length=100, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'web_push_subscription'
+        verbose_name = 'push subscription'
+        verbose_name_plural = 'push subscriptions'
+
 

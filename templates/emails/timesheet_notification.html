@@ -1,0 +1,48 @@
+{% extends "emails/base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<p>Olá {{ employee_name }},</p>
+
+<p>{{ message_body }}</p>
+
+{% if timesheet %}
+<div style="background-color: #f9fafb; border-radius: 8px; padding: 20px; margin: 20px 0; border-left: 4px solid #0A4B78;">
+    <h3 style="margin-top: 0; color: #0A4B78;">Detalhes da Timesheet:</h3>
+    <table style="width: 100%; border-collapse: collapse;">
+        <tr>
+            <td style="padding: 8px 0; color: #6b7280; width: 120px;"><strong>Período:</strong></td>
+            <td style="padding: 8px 0;">{{ timesheet.start_date|date:"d/m/Y" }} a {{ timesheet.end_date|date:"d/m/Y" }}</td>
+        </tr>
+        <tr>
+            <td style="padding: 8px 0; color: #6b7280;"><strong>Total Horas:</strong></td>
+            <td style="padding: 8px 0;"><strong>{{ timesheet.total_hours }}h</strong></td>
+        </tr>
+        <tr>
+            <td style="padding: 8px 0; color: #6b7280;"><strong>Estado:</strong></td>
+            <td style="padding: 8px 0;">
+                <span style="padding: 4px 8px; border-radius: 4px; background-color: #e5e7eb; font-size: 12px;">
+                    {{ timesheet.get_status_display }}
+                </span>
+            </td>
+        </tr>
+    </table>
+</div>
+{% endif %}
+
+{% if reason %}
+<div style="margin: 20px 0; padding: 15px; background-color: #fffaf0; border: 1px solid #feebc8; border-radius: 4px; color: #744210;">
+    <strong>Motivo/Comentário:</strong><br>
+    {{ reason }}
+</div>
+{% endif %}
+
+<div style="text-align: center; margin-top: 30px;">
+    <a href="{{ action_url }}" class="button">Ver no Sistema</a>
+</div>
+
+<p style="margin-top: 30px; font-size: 13px; color: #777;">
+    Este é um aviso automático do sistema de gestão Engconsult.
+</p>
+{% endblock %}

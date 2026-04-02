@@ -13,9 +13,10 @@ from django.utils import timezone
 from django.db.models import Q
 from django.db import IntegrityError
 import logging
-import threading
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from django_q.tasks import async_task
+
 
 from core.erp.models import Notification
 from core.user.models import User
@@ -381,23 +382,18 @@ class NotificationService:
             logger.error(f'[EMAIL] Erro ao renderizar template {template}: {e}')
             return
 
-        # Enviar em background thread
-        def _send():
-            try:
-                send_mail(
-                    subject=subject,
-                    message=plain_message,
-                    from_email=self.from_email,
-                    recipient_list=[user.email],
-                    html_message=html_message,
-                    fail_silently=False,
-                )
-                logger.info(f'[EMAIL] Enviado para {user.email}: {subject}')
-            except Exception as e:
-                logger.error(f'[EMAIL] Falha ao enviar para {user.email}: {e}')
+            # Enviar para a fila do Django Q
+            async_task(
+                'core.erp.tasks.send_email_task',
+                subject=subject,
+                plain_message=plain_message,
+                from_email=self.from_email,
+                recipient_list=[user.email],
+                html_message=html_message
+            )
+        except Exception as e:
+            logger.error(f'[EMAIL] Falha ao enfileirar email de {event_type} para {user.email}: {e}')
 
-        thread = threading.Thread(target=_send, daemon=True)
-        thread.start()
 
     def _broadcast_realtime(self, user, event_type, payload):
         """
@@ -410,7 +406,7 @@ class NotificationService:
             async_to_sync(channel_layer.group_send)(
                 group_name,
                 {
-                    'type': 'purchase_request_event',
+                    'type': 'notification_event',
                     'data': {
                         'type': event_type,
                         'payload': payload,
@@ -418,7 +414,7 @@ class NotificationService:
                     }
                 }
             )
-            logger.debug(f'[WS] Evento {event_type} enviado para {group_name}')
+            logger.debug(f'[WS-HUB] Evento {event_type} enviado para {group_name}')
         except Exception as e:
             logger.error(f'[WS] Falha ao enviar broadcast para user_{user.id}: {e}')
     def _broadcast_realtime_to_group(self, group_name, event_type, payload):
@@ -434,7 +430,7 @@ class NotificationService:
             async_to_sync(channel_layer.group_send)(
                 group_name,
                 {
-                    'type': 'purchase_request_event',
+                    'type': 'notification_event',
                     'data': {
                         'type': event_type,
                         'payload': payload,
@@ -442,7 +438,7 @@ class NotificationService:
                     }
                 }
             )
-            logger.debug(f'[WS] Evento {event_type} enviado para Grupo {group_name}')
+            logger.debug(f'[WS-HUB] Evento {event_type} enviado para Grupo {group_name}')
         except Exception as e:
             logger.error(f'[WS] Falha ao enviar broadcast para Grupo {group_name}: {e}')
 

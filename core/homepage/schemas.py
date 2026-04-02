@@ -27,3 +27,9 @@ class ContactIn(Schema):
     phone: Optional[str] = Field(None, max_length=30)
     message: str = Field(..., max_length=2000)
     website: Optional[str] = None  # Honeypot field
+
+
+class ContactStatsOut(Schema):
+    men_pct: int
+    women_pct: int
+    higher_ed_pct: int

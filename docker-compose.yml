@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: erp_db
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-erp_db}
+      POSTGRES_USER: ${POSTGRES_USER:-erp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-erp_pass}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - erp_network
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: erp_backend
+    restart: always
+    command: /app/entrypoint.sh
+    environment:
+      - DATABASE_HOST=db
+      - DATABASE_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-erp_db}
+      - POSTGRES_USER=${POSTGRES_USER:-erp_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-erp_pass}
+      - DEBUG=0
+      - SITE_URL=${SITE_URL:-http://localhost}
+    volumes:
+      - .:/app
+      - backend_static:/app/staticfiles
+      - backend_media:/app/media
+    depends_on:
+      - db
+    networks:
+      - erp_network
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: erp_worker
+    restart: always
+    command: python manage.py qcluster
+    environment:
+      - DATABASE_HOST=db
+      - DATABASE_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-erp_db}
+      - POSTGRES_USER=${POSTGRES_USER:-erp_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-erp_pass}
+    volumes:
+      - .:/app
+      - backend_media:/app/media
+    depends_on:
+      - db
+    networks:
+      - erp_network
+
+  # NOTA PARA FRONTEND:
+  # Para integrar o frontend, adicione aqui o serviço conforme o GUIA_DOCKER_FRONTEND.md.
+
+networks:
+  erp_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  backend_static:
+  backend_media:

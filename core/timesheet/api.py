@@ -614,7 +614,6 @@ def submit_timesheet(request, timesheet_id: int):
 
 
 def has_view_permission(user, timesheet):
-    print(user, "init ...")
     try:
         # SuperusuÃ¡rio tem acesso total
         if user.is_superuser:
@@ -624,12 +623,12 @@ def has_view_permission(user, timesheet):
         if user.groups.filter(name='ADMINISTRADOR').exists():
             return True
 
-        # DIREÃ‡ÃƒO - acesso total
-        if user.groups.filter(name='DIREÃ‡ÃƒO').exists():
+        # DIREÇÃO - acesso total
+        if user.groups.filter(name='DIREÇÃO').exists():
             return True
 
-        # O proprietÃ¡rio sempre pode ver sua prÃ³pria timesheet
-        if timesheet.user == user:
+        # O proprietário sempre pode ver sua própria timesheet
+        if timesheet.employee.user == user:
             return True
 
         # RH - pode ver todas as timesheets submetidas
@@ -1056,7 +1055,7 @@ def export_timesheet_pdf(request, timesheet_id: int):
     except Timesheet.DoesNotExist:
         return {"error": "Timesheet not found"}, 404
     except Exception as e:
-        print("Erro ao gerar PDF:", str(e))
+        logger.error(f"Erro ao gerar PDF: {str(e)}")
         import traceback
         traceback.print_exc()
         return {"error": "Erro interno ao gerar PDF"}, 500
